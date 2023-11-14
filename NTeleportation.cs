@@ -18,9 +18,21 @@ using System.Reflection;
 using Oxide.Core.Libraries.Covalence;
 using Network;
 
+/*
+Fix for teleport sending players under map?
+Fix for cargoship glitch?
+Fixed position checks for UsableOutOfBuildingBlocked
+Fixed position checks for UsableIntoBuildingBlocked
+Fixed IsOutside check for caves to allow teleporting while outside of a cave
+Added `Interrupt TP > Boats` (false)
+Added optional argument to teleporting to a player. e.g:
+    Multiple players found: ted, tedxbunny, xtedx
+    `/tpr ted #1` - teleport to the player using their index from the above list of player names
+*/
+
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.7")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.8")]
     class NTeleportation : RustPlugin
     {
         private bool newSave;
@@ -118,6 +130,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Balloon")]
             public bool Balloon { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Boats")]
+            public bool Boats { get; set; }
 
             [JsonProperty(PropertyName = "Cargo Ship")]
             public bool Cargo { get; set; } = True;
@@ -632,6 +647,7 @@ namespace Oxide.Plugins
                 {"TPWounded", "You can't teleport while wounded!"},
                 {"TPTooCold", "You're too cold to teleport!"},
                 {"TPTooHot", "You're too hot to teleport!"},
+                {"TPBoat", "You can't teleport while on a boat!"},
                 {"TPHostile", "Can't teleport to outpost or bandit when hostile!"},
                 {"HostileTimer", "Teleport available in {0} minutes."},
                 {"TPMounted", "You can't teleport while seated!"},
@@ -2029,7 +2045,7 @@ namespace Oxide.Plugins
             switch (args.Length)
             {
                 case 1:
-                    target = FindPlayersSingle(args[0], player);
+                    target = FindPlayersSingle(args, player);
                     if (target == null) return;
                     if (target == player)
                     {
@@ -2047,9 +2063,9 @@ namespace Oxide.Plugins
                         PrintMsgL(target, "AdminTPTarget", player.displayName);
                     break;
                 case 2:
-                    var origin = FindPlayersSingle(args[0], player);
+                    var origin = FindPlayersSingle(args, player);
                     if (origin == null) return;
-                    target = FindPlayersSingle(args[1], player);
+                    target = FindPlayersSingle(args.Skip(1).ToArray(), player);
                     if (target == null) return;
                     if (target == origin)
                     {
@@ -2080,7 +2096,7 @@ namespace Oxide.Plugins
                     Puts(_("LogTeleport", null, player.displayName, player.transform.position));
                     break;
                 case 4:
-                    target = FindPlayersSingle(args[0], player);
+                    target = FindPlayersSingle(args, player);
                     if (target == null) return;
                     if (!float.TryParse(args[1], out x) || !float.TryParse(args[2], out y) || !float.TryParse(args[3], out z))
                     {
@@ -2122,7 +2138,7 @@ namespace Oxide.Plugins
             {
                 case 1:
                 case 2:
-                    var target = FindPlayersSingle(args[0], player);
+                    var target = FindPlayersSingle(args, player);
                     if (target == null) return;
                     if (target == player)
                     {
@@ -2280,7 +2296,7 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "SyntaxCommandSetHome");
                 return;
             }
-            var err = CheckPlayer(player, False, CanCraftHome(player), True, "home");
+            var err = CheckPlayer(player, player.transform.position, False, CanCraftHome(player), True, "home");
             if (err != null)
             {
                 PrintMsgL(player, err);
@@ -2583,12 +2599,6 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "SyntaxCommandHome");
                 return;
             }
-            var err = CheckPlayer(player, config.Home.UsableOutOfBuildingBlocked, CanCraftHome(player), True, "home");
-            if (err != null)
-            {
-                PrintMsgL(player, err);
-                return;
-            }
             HomeData homeData;
             if (!Home.TryGetValue(player.userID, out homeData) || homeData.Locations.Count <= 0)
             {
@@ -2599,6 +2609,12 @@ namespace Oxide.Plugins
             if (!homeData.Locations.TryGetValue(args[0], out location))
             {
                 PrintMsgL(player, "HomeNotFound");
+                return;
+            }
+            var err = CheckPlayer(player, player.transform.position, config.Home.UsableOutOfBuildingBlocked, CanCraftHome(player), True, "home");
+            if (err != null)
+            {
+                PrintMsgL(player, err);
                 return;
             }
             err = CheckFoundation(player.userID, location) ?? CheckTargetLocation(player, location, config.Home.UsableIntoBuildingBlocked, config.Home.CupOwnerAllowOnBuildingBlocked);
@@ -2709,7 +2725,7 @@ namespace Oxide.Plugins
 #if DEBUG
                     Puts("Calling CheckPlayer from cmdChatHomeTP");
 #endif
-                    err = CheckPlayer(player, config.Home.UsableOutOfBuildingBlocked, CanCraftHome(player), True, "home");
+                    err = CheckPlayer(player, player.transform.position, config.Home.UsableOutOfBuildingBlocked, CanCraftHome(player), True, "home");
                     if (err != null)
                     {
                         PrintMsgL(player, "Interrupted");
@@ -2791,7 +2807,7 @@ namespace Oxide.Plugins
                             PrintMsgL(player, "TPMoney", (double)config.Home.Pay);
                         }
                     }
-                    
+
                     Teleport(player, location);
                     homeData.Teleports.Amount++;
                     homeData.Teleports.Timestamp = timestamp;
@@ -2939,29 +2955,29 @@ namespace Oxide.Plugins
 
         private bool AreFriends(string playerId, string targetId)
         {
-            if (!config.TPT.UseFriends || !IsEnabled(targetId, "friend") || !Friends || !Friends.IsLoaded)
+            if (!config.TPT.UseFriends || !IsEnabled(targetId, "friend") || Friends == null || !Friends.IsLoaded)
             {
                 return False;
             }
 
-            return Friends?.Call<bool>("AreFriends", playerId, targetId) ?? False;
+            return Friends.Call<bool>("AreFriends", playerId, targetId);
         }
 
         private bool IsInSameClan(string playerId, string targetId)
         {
-            if (!config.TPT.UseClans || !IsEnabled(targetId, "clan") || !Clans || !Clans.IsLoaded)
+            if (!config.TPT.UseClans || !IsEnabled(targetId, "clan") || Clans == null || !Clans.IsLoaded)
             {
                 return false;
             }
 
-            string targetClan = Clans?.Call<string>("GetClanOf", targetId);
+            string targetClan = Clans.Call<string>("GetClanOf", targetId);
 
             if (targetClan == null)
             {
                 return false;
             }
 
-            string playerClan = Clans?.Call<string>("GetClanOf", playerId);
+            string playerClan = Clans.Call<string>("GetClanOf", playerId);
 
             if (playerClan == null)
             {
@@ -3030,26 +3046,54 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "PlayerNotFound");
                 return;
             }
-            if (targets.Count > 1)
+            BasePlayer target = null;
+            if (args.Length >= 2)
             {
-                PrintMsgL(player, "MultiplePlayers", string.Join(", ", targets.Select(x => x.displayName).ToArray()));
-                return;
+                int index;
+                foreach (var arg in args) 
+                {
+                    if (int.TryParse(arg.Replace("#", string.Empty), out index) && targets.Count < --index)
+                    {
+                        target = targets[index];
+                        break;
+                    }
+                }
+
+                if (target == null)
+                {
+                    if (targets.Count > 1)
+                    {
+                        PrintMsgL(player, "MultiplePlayers", string.Join(", ", targets.Select(x => x.displayName).ToArray()));
+                        return;
+                    }
+                    else target = targets[0];
+                }
             }
-            var target = targets[0];
+            else
+            {
+                if (targets.Count > 1)
+                {
+                    PrintMsgL(player, "MultiplePlayers", string.Join(", ", targets.Select(x => x.displayName).ToArray()));
+                    return;
+                }
+
+                target = targets[0];
+            }
+            
             if (target == player && !player.IsAdmin)
             {
 #if DEBUG
                 Puts("Debug mode - allowing self teleport.");
 #else
-        PrintMsgL(player, "CantTeleportToSelf");
-        return;
+                PrintMsgL(player, "CantTeleportToSelf");
+                return;
 #endif
             }
 #if DEBUG
             Puts("Calling CheckPlayer from cmdChatTeleportRequest");
 #endif
 
-            var err = CheckPlayer(player, config.TPR.UsableOutOfBuildingBlocked, CanCraftTPR(player), True, "tpr");
+            var err = CheckPlayer(player, player.transform.position, config.TPR.UsableOutOfBuildingBlocked, CanCraftTPR(player), True, "tpr");
             if (err != null)
             {
                 PrintMsgL(player, err);
@@ -3200,7 +3244,7 @@ namespace Oxide.Plugins
 #if DEBUG
             Puts("Calling CheckPlayer from cmdChatTeleportAccept");
 #endif
-            var err = CheckPlayer(player, False, CanCraftTPR(player), False, "tpa");
+            var err = CheckPlayer(player, player.transform.position, False, CanCraftTPR(player), False, "tpa");
             if (err != null)
             {
                 PrintMsgL(player, err);
@@ -3240,7 +3284,7 @@ namespace Oxide.Plugins
 #if DEBUG
                     Puts("Calling CheckPlayer from cmdChatTeleportAccept timer loop");
 #endif
-                    err = CheckPlayer(originPlayer, config.TPR.UsableOutOfBuildingBlocked, CanCraftTPR(originPlayer), True, "tpa") ?? CheckPlayer(player, False, CanCraftTPR(player), True, "tpa");
+                    err = CheckPlayer(originPlayer, originPlayer.transform.position, config.TPR.UsableOutOfBuildingBlocked, CanCraftTPR(originPlayer), True, "tpa") ?? CheckPlayer(player, player.transform.position, False, CanCraftTPR(player), True, "tpa");
                     if (err != null)
                     {
                         PrintMsgL(player, "InterruptedTarget", originPlayer.displayName);
@@ -3665,7 +3709,7 @@ namespace Oxide.Plugins
             switch (command)
             {
                 case "outpost":
-                    err = CheckPlayer(player, config.Outpost.UsableOutOfBuildingBlocked, CanCraftOutpost(player), True, "outpost");
+                    err = CheckPlayer(player, player.transform.position, config.Outpost.UsableOutOfBuildingBlocked, CanCraftOutpost(player), True, "outpost");
                     if (err != null)
                     {
                         PrintMsgL(player, err);
@@ -3700,7 +3744,7 @@ namespace Oxide.Plugins
                     limit = GetHigher(player, config.Outpost.VIPDailyLimits, config.Outpost.DailyLimit, true);
                     break;
                 case "bandit":
-                    err = CheckPlayer(player, config.Bandit.UsableOutOfBuildingBlocked, CanCraftBandit(player), True, "bandit");
+                    err = CheckPlayer(player, player.transform.position, config.Bandit.UsableOutOfBuildingBlocked, CanCraftBandit(player), True, "bandit");
                     if (err != null)
                     {
                         PrintMsgL(player, err);
@@ -3735,7 +3779,7 @@ namespace Oxide.Plugins
                     break;
                 case "town":
                 default:
-                    err = CheckPlayer(player, config.Town.UsableOutOfBuildingBlocked, CanCraftTown(player), True, "town");
+                    err = CheckPlayer(player, player.transform.position, config.Town.UsableOutOfBuildingBlocked, CanCraftTown(player), True, "town");
                     if (err != null)
                     {
                         PrintMsgL(player, err);
@@ -3854,7 +3898,7 @@ namespace Oxide.Plugins
 #if DEBUG
                             Puts("Calling CheckPlayer from cmdChatTown outpost timer loop");
 #endif
-                            err = CheckPlayer(player, config.Outpost.UsableOutOfBuildingBlocked, CanCraftOutpost(player), True, "outpost");
+                            err = CheckPlayer(player, player.transform.position, config.Outpost.UsableOutOfBuildingBlocked, CanCraftOutpost(player), True, "outpost");
                             if (err != null)
                             {
                                 PrintMsgL(player, "Interrupted");
@@ -3931,7 +3975,7 @@ namespace Oxide.Plugins
 #if DEBUG
                             Puts("Calling CheckPlayer from cmdChatTown bandit timer loop");
 #endif
-                            err = CheckPlayer(player, config.Bandit.UsableOutOfBuildingBlocked, CanCraftBandit(player), True, "bandit");
+                            err = CheckPlayer(player, player.transform.position, config.Bandit.UsableOutOfBuildingBlocked, CanCraftBandit(player), True, "bandit");
                             if (err != null)
                             {
                                 PrintMsgL(player, "Interrupted");
@@ -4009,7 +4053,7 @@ namespace Oxide.Plugins
 #if DEBUG
                             Puts("Calling CheckPlayer from cmdChatTown town timer loop");
 #endif
-                            err = CheckPlayer(player, config.Town.UsableOutOfBuildingBlocked, CanCraftTown(player), True, "town");
+                            err = CheckPlayer(player, player.transform.position, config.Town.UsableOutOfBuildingBlocked, CanCraftTown(player), True, "town");
                             if (err != null)
                             {
                                 PrintMsgL(player, "Interrupted");
@@ -4084,7 +4128,7 @@ namespace Oxide.Plugins
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (player != null && (!IsAllowedMsg(player, PermTpConsole) || !player.IsConnected || player.IsSleeping())) return;
-            
+
             List<BasePlayer> players;
             switch (command)
             {
@@ -4349,42 +4393,44 @@ namespace Oxide.Plugins
             else teleporting[player.userID] = newPosition;
 
             var oldPosition = player.transform.position;
-            
+
             try
             {
                 player.EnsureDismounted(); // 1.1.2 @Def
-
-                if (player.HasParent())
-                {
-                    player.SetParent(null, True, True);
-                }
+                player.SetParent(null, True, True);
 
                 if (player.IsConnected) // 1.1.2 @Def
                 {
                     player.EndLooting();
                     StartSleeping(player);
+                    player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, True);
                 }
 
-                player.RemoveFromTriggers(); // 1.1.2 @Def recommendation to use natural method for issue with triggers
+                player.EnablePlayerCollider();
+                player.RemovePlayerRigidbody();
                 player.EnableServerFall(True); // redundant, in OnEntityTakeDamage hook
                 player.Teleport(newPosition); // 1.1.6
 
-                if (player.IsConnected && !Network.Net.sv.visibility.IsInside(player.net.group, newPosition))
+                if (player.IsConnected && !Net.sv.visibility.IsInside(player.net.group, newPosition))
                 {
-                    player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, True);
                     player.ClientRPCPlayer(null, player, "StartLoading");
-                    player.SendEntityUpdate();
+                    
                     if (!IsInvisible(player)) // fix for becoming networked briefly with vanish while teleporting
                     {
                         player.UpdateNetworkGroup(); // 1.1.1 building fix @ctv
                         player.SendNetworkUpdateImmediate(False);
+                        player.ClearEntityQueue(null);
+                        player.SendFullSnapshot();
                     }
+                    else player.ClearEntityQueue(null);
                 }
             }
             finally
             {
-                player.EnableServerFall(False);
                 player.ForceUpdateTriggers(); // 1.1.4 exploit fix for looting sleepers in safe zones
+                player.EnablePlayerCollider();
+                player.AddPlayerRigidbody();
+                player.EnableServerFall(False);
             }
 
             Interface.CallHook("OnPlayerTeleported", player, oldPosition, newPosition);
@@ -4486,11 +4532,6 @@ namespace Oxide.Plugins
             return null;
         }
 
-        private bool belowGround(Vector3 a, Vector3 b)
-        {
-            return a.y < TerrainMeta.HeightMap.GetHeight(b);
-        }
-
         private string NearCave(BasePlayer player)
         {
             foreach (var entry in caves)
@@ -4498,7 +4539,7 @@ namespace Oxide.Plugins
                 string caveName = entry.Key.Contains(":") ? entry.Key.Substring(0, entry.Key.LastIndexOf(":")) : entry.Key;
                 float realdistance = entry.Key.Contains("Small") ? config.Settings.CaveDistanceSmall : entry.Key.Contains("Medium") ? config.Settings.CaveDistanceMedium : config.Settings.CaveDistanceLarge;
 
-                if (Vector3.Distance(player.transform.position, entry.Value) < realdistance + 50f && !belowGround(player.transform.position, entry.Value))
+                if (Vector3.Distance(player.transform.position, entry.Value) < realdistance + 50f && !player.IsOutside())
                 {
 #if DEBUG
                     Puts($"NearCave: {caveName} nearby.");
@@ -4515,7 +4556,7 @@ namespace Oxide.Plugins
             return null;
         }
 
-        private string CheckPlayer(BasePlayer player, bool build = False, bool craft = False, bool origin = True, string mode = "home")
+        private string CheckPlayer(BasePlayer player, Vector3 target, bool build = False, bool craft = False, bool origin = True, string mode = "home")
         {
             var onship = player.GetComponentInParent<CargoShip>();
             var onballoon = player.GetComponentInParent<HotAirBalloon>();
@@ -4605,6 +4646,8 @@ namespace Oxide.Plugins
                 return "TPTooHot";
             }
 
+            if (config.Settings.Interrupt.Boats && player.isMounted && player.GetMounted() is BaseBoat)
+                return "TPBoat";
             if (config.Settings.Interrupt.AboveWater)
                 if (AboveWater(player))
                     return "TPAboveWater";
@@ -4799,7 +4842,7 @@ namespace Oxide.Plugins
             Vis.Entities(targetLocation, 0.35f, batteries, deployedLayer);
             return batteries.Count > 0 ? "TPTargetInsideBlock" : null;
         }
-        
+
         private string CheckItems(BasePlayer player)
         {
             foreach (var blockedItem in ReverseBlockedItems)
@@ -5304,8 +5347,10 @@ namespace Oxide.Plugins
             return userId;
         }
 
-        private BasePlayer FindPlayersSingle(string nameOrIdOrIp, BasePlayer player)
+        private BasePlayer FindPlayersSingle(string[] args, BasePlayer player)
         {
+            if (args.Length == 0) return null;
+            string nameOrIdOrIp = args[0];
             var targets = FindPlayers(nameOrIdOrIp);
             if (targets.Count <= 0)
             {
@@ -5314,6 +5359,14 @@ namespace Oxide.Plugins
             }
             if (targets.Count > 1)
             {
+                int index;
+                foreach (var arg in args)
+                {
+                    if (int.TryParse(arg.Replace("#", string.Empty), out index) && targets.Count < --index)
+                    {
+                        return targets[index];
+                    }
+                }
                 PrintMsgL(player, "MultiplePlayers", string.Join(", ", targets.Select(p => p.displayName).ToArray()));
                 targets.Clear();
                 return null;
@@ -5332,7 +5385,7 @@ namespace Oxide.Plugins
         private static List<BasePlayer> FindPlayersOnline(string nameOrIdOrIp)
         {
             if (string.IsNullOrEmpty(nameOrIdOrIp)) return new List<BasePlayer>();
-            return BasePlayer.activePlayerList.Where(p => p.UserIDString == nameOrIdOrIp || p.displayName.Contains(nameOrIdOrIp, CompareOptions.OrdinalIgnoreCase) || (p.IsConnected && p.net.connection.ipaddress.Contains(nameOrIdOrIp))).ToList();
+            return BasePlayer.activePlayerList.Where(p => p && (p.UserIDString == nameOrIdOrIp || p.displayName.Contains(nameOrIdOrIp, CompareOptions.OrdinalIgnoreCase) || (p.IsConnected && p.net.connection.ipaddress.Contains(nameOrIdOrIp)))).ToList();
         }
         #endregion
 
