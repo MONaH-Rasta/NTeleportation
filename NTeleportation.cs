@@ -18,14 +18,9 @@ using System.Reflection;
 using Oxide.Core.Libraries.Covalence;
 using Network;
 
-/*
-    1.3.5:
-    Fix for tpt toggle
-*/
-
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.5")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.6")]
     class NTeleportation : RustPlugin
     {
         private bool newSave;
@@ -2944,7 +2939,7 @@ namespace Oxide.Plugins
 
         private bool AreFriends(string playerId, string targetId)
         {
-            if (!config.TPT.UseFriends || !IsEnabled(targetId, "friend"))
+            if (!config.TPT.UseFriends || !IsEnabled(targetId, "friend") || !Friends || !Friends.IsLoaded)
             {
                 return False;
             }
@@ -2954,7 +2949,7 @@ namespace Oxide.Plugins
 
         private bool IsInSameClan(string playerId, string targetId)
         {
-            if (!config.TPT.UseClans || !IsEnabled(targetId, "clan"))
+            if (!config.TPT.UseClans || !IsEnabled(targetId, "clan") || !Clans || !Clans.IsLoaded)
             {
                 return false;
             }
