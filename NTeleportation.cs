@@ -1,4 +1,4 @@
-//#define DEBUG
+#define DEBUG
 //#define TPP
 using System;
 using System.Collections;
@@ -19,13 +19,23 @@ using static UnityEngine.Vector3;
 using System.Text.RegularExpressions;
 
 /*
+    1.1.6:
+    TPT settings are now correctly added to the config
+    Fixed InterruptTPOnMonument not working at some monuments
+
+    Added at the request of @Orange:
+    - bool API_HavePendingRequest(BasePlayer player)
+    - bool API_HaveAvailableHomes(BasePlayer player)
+    - List<string> API_GetHomes(BasePlayer player)
+    - Added console commands: tpr, home, tpa, tpc, sethome, removehome
+
     1.1.5:
-    Removed downgrade support for versions 1.0.89 and below
-    Added config setting TPT > UseClans (default: true) - If set false, users cannot teleport to clan mates even with `nteleportation.tpt` permission
-    Added config setting TPT > UseFriends (default: true) - If set false, users cannot teleport to friends even with `nteleportation.tpt` permission
-    Added config setting TPT > UseTeams (default: true) - If set false, users cannot teleport to team mates even with `nteleportation.tpt` permission
-    Added command `/tpt clan|team|friend` to toggle allowing/blocking of players trying to instantly teleport to them when using /tpt name
-    Added new language messages for TPT (en only atm)
+    Disabled upgrade support for versions 1.0.89 and below until fixed.
+    Added config setting TPT > UseClans (default: true) - If set false, users cannot TPT to clan mates even with nteleportation.tpt permission
+    Added config setting TPT > UseFriends (default: true) - If set false, users cannot TPT to friends even with nteleportation.tpt permission
+    Added config setting TPT > UseTeams (default: true) - If set false, users cannot TPT to team mates even with nteleportation.tpt permission
+    Added command /tpt clan|team|friend FOR INDIVIDUAL PLAYERS to toggle allowing/blocking of players trying to instantly teleport to them when using /tpt name
+    Added new language messages for these related TPT features (English only)
     Fix for desync of players after teleport when close to teleport point or offline. Credits @Death
 
     1.1.4:
@@ -71,7 +81,7 @@ using System.Text.RegularExpressions;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.1.5")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.1.6")]
     class NTeleportation : RustPlugin
     {
         private static readonly Vector3 Up = up;
@@ -1330,15 +1340,21 @@ namespace Oxide.Plugins
             {
                 configData = Config.ReadObject<ConfigData>();
             }
-            catch(Exception)
+            catch
             {
                 Puts("Corrupt config, loading default...");
                 LoadDefaultConfig();
             }
 
-            if(!(configData.Version == Version))
+            if (configData.TPT == null)
             {
-                if(configData.Home.VIPHomesLimits == null)
+                configData.TPT = new TPTData();
+                Config.WriteObject(configData, true);
+            }
+
+            if (!(configData.Version == Version))
+            {
+                if (configData.Home.VIPHomesLimits == null)
                 {
                     configData.Home.VIPHomesLimits = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
                     configData.Home.VIPDailyLimits = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
@@ -1799,7 +1815,7 @@ namespace Oxide.Plugins
         bool setextra = false;
         void FindMonuments()
         {
-            Vector3 extents = Vector3.zero;
+            Vector3 extents = zero;
             float realWidth = 0f;
             string name = null;
             foreach(MonumentInfo monument in UnityEngine.Object.FindObjectsOfType<MonumentInfo>())
@@ -1873,7 +1889,7 @@ namespace Oxide.Plugins
                     {
                         if(entity.PrefabName.Contains("workbench"))
                         {
-                            configData.Bandit.Location = Vector3.Lerp(monument.transform.position, entity.transform.position, 0.45f) + new Vector3(0, 1.5f, 0);
+                            configData.Bandit.Location = Lerp(monument.transform.position, entity.transform.position, 0.45f) + new Vector3(0, 1.5f, 0);
                             setextra = true;
                             break;
                         }
@@ -2132,7 +2148,7 @@ namespace Oxide.Plugins
             var positionCoordinates = player.transform.position;
             foreach (var loc in adminData.Locations)
             {
-                if (Vector3.Distance(positionCoordinates, loc.Value) < configData.Admin.LocationRadius)
+                if (Distance(positionCoordinates, loc.Value) < configData.Admin.LocationRadius)
                 {
                     PrintMsgL(player, "LocationExistsNearby", loc.Key);
                     return;
@@ -2234,7 +2250,7 @@ namespace Oxide.Plugins
             var positionCoordinates = player.transform.position;
             foreach (var loc in homeData.Locations)
             {
-                if (Vector3.Distance(positionCoordinates, loc.Value) < configData.Home.LocationRadius)
+                if (Distance(positionCoordinates, loc.Value) < configData.Home.LocationRadius)
                 {
                     PrintMsgL(player, "HomeExistsNearby", loc.Key);
                     return;
@@ -2349,7 +2365,7 @@ namespace Oxide.Plugins
                 var target = RustCore.FindPlayerById(homeData.Key)?.displayName ?? homeData.Key.ToString();
                 foreach (var location in homeData.Value.Locations)
                 {
-                    if (Vector3.Distance(player.transform.position, location.Value) <= radius)
+                    if (Distance(player.transform.position, location.Value) <= radius)
                     {
                         if(CheckFoundation(homeData.Key, location.Value) != null)
                         {
@@ -4115,7 +4131,7 @@ namespace Oxide.Plugins
                 teleporting.Add(player.userID, position);
             else teleporting[player.userID] = position;
 
-            try // IPlayer.Teleport
+            try
             {
                 player.EnsureDismounted(); // 1.1.2 @Def
 
@@ -4132,8 +4148,7 @@ namespace Oxide.Plugins
 
                 player.RemoveFromTriggers(); // 1.1.2 @Def recommendation to use natural method for issue with triggers
                 player.EnableServerFall(true); // redundant, in OnEntityTakeDamage hook
-                player.MovePosition(position);
-                player.ClientRPCPlayer(null, player, "ForcePositionTo", position); // 1.1.5 moved by Death
+                player.Teleport(position); // 1.1.6
 
                 if (player.IsConnected && !Network.Net.sv.visibility.IsInside(player.net.group, position))
                 {
@@ -4179,9 +4194,9 @@ namespace Oxide.Plugins
                 if (block == null) continue;
                 var prefab = block.PrefabName;
                 if (!prefab.Contains("foundation", CompareOptions.OrdinalIgnoreCase) && !prefab.Contains("floor", CompareOptions.OrdinalIgnoreCase) && !prefab.Contains("pillar", CompareOptions.OrdinalIgnoreCase)) continue;
-                if (!(Vector3.Distance(block.transform.position, position) < distance)) continue;
+                if (!(Distance(block.transform.position, position) < distance)) continue;
                 buildingBlock = block;
-                distance = Vector3.Distance(block.transform.position, position);
+                distance = Distance(block.transform.position, position);
             }
             if (buildingBlock == null || configData.TPR.OffsetTPRTarget == false) return position;
             var blockRotation = buildingBlock.transform.rotation.eulerAngles.y;
@@ -4207,10 +4222,10 @@ namespace Oxide.Plugins
                 Puts($"CheckPosition:     newX = {newXs}, newZ = {newZs}");
 #endif
                 var newLoc = new Vector3((float)(buildingBlock.transform.position.x + newX), buildingBlock.transform.position.y + .2f, (float)(buildingBlock.transform.position.z + newZ));
-                if (Vector3.Distance(position, newLoc) < locationDistance)
+                if (Distance(position, newLoc) < locationDistance)
                 {
                     location = newLoc;
-                    locationDistance = Vector3.Distance(position, newLoc);
+                    locationDistance = Distance(position, newLoc);
 #if DEBUG
                     var locs = newLoc.ToString();
                     Puts($"CheckPosition:     possible new location at {locs}");
@@ -4278,16 +4293,13 @@ namespace Oxide.Plugins
 
         private string NearMonument(BasePlayer player)
         {
-            var pos = player.transform.position;
-            var poss = pos.ToString();
-
             foreach(KeyValuePair<string, Vector3> entry in monPos)
             {
                 var monname = entry.Key;
                 var monvector = entry.Value;
-                float realdistance = monSize[monname].z;
-                monvector.y = pos.y;
-                float dist = Vector3.Distance(pos, monvector);
+                float realdistance = Mathf.Max(monSize[monname].x, monSize[monname].z);
+                monvector.y = player.transform.position.y;
+                float dist = Distance(player.transform.position, monvector);
 #if DEBUG
                 Puts($"Checking {monname} dist: {dist.ToString()}, realdistance: {realdistance.ToString()}");
 #endif
@@ -4328,7 +4340,7 @@ namespace Oxide.Plugins
                 var cavevector = entry.Value;
                 cavevector.y = pos.y;
                 var cpos = cavevector.ToString();
-                float dist = Vector3.Distance(pos, cavevector);
+                float dist = Distance(pos, cavevector);
 
                 if(dist < realdistance)
                 {
@@ -4807,7 +4819,7 @@ namespace Oxide.Plugins
             RaycastHit hitinfo;
             var entities = new List<BuildingBlock>();
 
-            if(Physics.Raycast(position, Vector3.down, out hitinfo, 0.2f, blockLayer))
+            if(Physics.Raycast(position, down, out hitinfo, 0.2f, blockLayer))
             {
                 var entity = hitinfo.GetEntity();
                 if(entity.PrefabName.Contains("foundation") || position.y < entity.WorldSpaceBounds().ToBounds().max.y)
@@ -4836,7 +4848,7 @@ namespace Oxide.Plugins
             RaycastHit hitinfo;
             var entities = new List<BuildingBlock>();
 
-            if(Physics.Raycast(position, Vector3.down, out hitinfo, 0.11f, blockLayer))
+            if(Physics.Raycast(position, down, out hitinfo, 0.11f, blockLayer))
             {
                 var entity = hitinfo.GetEntity();
                 if(entity.PrefabName.Contains("floor"))
@@ -4862,7 +4874,7 @@ namespace Oxide.Plugins
             RaycastHit hitinfo;
             var entities = new List<BuildingBlock>();
 
-            if(Physics.Raycast(position, Vector3.down, out hitinfo, 0.11f, blockLayer))
+            if(Physics.Raycast(position, down, out hitinfo, 0.11f, blockLayer))
             {
                 var entity = hitinfo.GetEntity();
                 if(entity.PrefabName.Contains("floor") || entity.PrefabName.Contains("foundation"))// || position.y < entity.WorldSpaceBounds().ToBounds().max.y))
@@ -4903,8 +4915,8 @@ namespace Oxide.Plugins
 #if DEBUG
             Puts("GetGround(): Looking for iceberg or cave");
 #endif
-            //if (Physics.SphereCast(sourcePos, .1f, Vector3.down, out hitinfo, 250, groundLayer))
-            if(Physics.Raycast(sourcePos, Vector3.down, out hitinfo, 250f, groundLayer))
+            //if (Physics.SphereCast(sourcePos, .1f, down, out hitinfo, 250, groundLayer))
+            if(Physics.Raycast(sourcePos, down, out hitinfo, 250f, groundLayer))
             {
                 if((configData.Home.AllowIceberg && hitinfo.collider.name.Contains("iceberg")) || (configData.Home.AllowCave && hitinfo.collider.name.Contains("cave_")))
                 {
@@ -4927,8 +4939,8 @@ namespace Oxide.Plugins
 #if DEBUG
             Puts("GetGround(): Looking for cave or rock");
 #endif
-            //if(!configData.Home.AllowCave && Physics.SphereCast(sourcePos, .1f, Vector3.up, out hitinfo, 250, groundLayer) && hitinfo.collider.name.Contains("rock_"))
-            if(!configData.Home.AllowCave && Physics.Raycast(sourcePos, Vector3.up, out hitinfo, 250f, groundLayer) && hitinfo.collider.name.Contains("rock_"))
+            //if(!configData.Home.AllowCave && Physics.SphereCast(sourcePos, .1f, up, out hitinfo, 250, groundLayer) && hitinfo.collider.name.Contains("rock_"))
+            if(!configData.Home.AllowCave && Physics.Raycast(sourcePos, up, out hitinfo, 250f, groundLayer) && hitinfo.collider.name.Contains("rock_"))
             {
 #if DEBUG
                 Puts("GetGround():   found cave or rock");
@@ -4954,12 +4966,12 @@ namespace Oxide.Plugins
         {
             sourcePos.y = TerrainMeta.HeightMap.GetHeight(sourcePos);
             RaycastHit hitinfo;
-            if (Physics.Raycast(sourcePos, Vector3.down, out hitinfo, buildingLayer))
+            if (Physics.Raycast(sourcePos, down, out hitinfo, buildingLayer))
             {
                 sourcePos.y = System.Math.Max(hitinfo.point.y, sourcePos.y);
                 return sourcePos;
             }
-            if (Physics.Raycast(sourcePos, Vector3.up, out hitinfo, buildingLayer))
+            if (Physics.Raycast(sourcePos, up, out hitinfo, buildingLayer))
                 sourcePos.y = System.Math.Max(hitinfo.point.y, sourcePos.y);
             return sourcePos;
         }
@@ -5453,6 +5465,70 @@ namespace Oxide.Plugins
         private void SendHelpText(BasePlayer player)
         {
             PrintMsgL(player, "<size=14>NTeleportation</size> by <color=#ce422b>Nogrod</color>\n<color=#ffd479>/sethome NAME</color> - Set home on current foundation\n<color=#ffd479>/home NAME</color> - Go to one of your homes\n<color=#ffd479>/home list</color> - List your homes\n<color=#ffd479>/town</color> - Go to town, if set\n/tpb - Go back to previous location\n/tpr PLAYER - Request teleport to PLAYER\n/tpa - Accept teleport request");
+        }
+
+        private bool API_HavePendingRequest(BasePlayer player)
+        {
+            return PendingRequests.ContainsKey(player.userID) || PlayersRequests.ContainsKey(player.userID) || TeleportTimers.ContainsKey(player.userID);
+        }
+
+        private bool API_HaveAvailableHomes(BasePlayer player)
+        {
+            HomeData homeData;
+            if (Home.TryGetValue(player.userID, out homeData) == false)
+            {
+                Home[player.userID] = homeData = new HomeData();
+            }
+
+            var limit = GetHigher(player, configData.Home.VIPHomesLimits, configData.Home.HomesLimit);
+            return homeData.Locations.Count < limit;
+        }
+
+        private List<string> API_GetHomes(BasePlayer player)
+        {
+            HomeData homeData;
+            if (Home.TryGetValue(player.userID, out homeData) == false)
+            {
+                Home[player.userID] = homeData = new HomeData();
+            }
+
+            return homeData.Locations.Keys.ToList();
+        }
+
+        [ConsoleCommand("tpr")]
+        private void cmdTprConsole(ConsoleSystem.Arg arg)
+        {
+            cmdChatTeleportRequest(arg.Player(), string.Empty, arg.Args);
+        }
+
+        [ConsoleCommand("home")]
+        private void cmdHomeConsole(ConsoleSystem.Arg arg)
+        {
+            cmdChatHome(arg.Player(), string.Empty, arg.Args);
+        }
+
+        [ConsoleCommand("tpa")]
+        private void cmdTpaConsole(ConsoleSystem.Arg arg)
+        {
+            cmdChatTeleportAccept(arg.Player(), string.Empty, new string[] { });
+        }
+
+        [ConsoleCommand("tpc")]
+        private void cmdTpcConsole(ConsoleSystem.Arg arg)
+        {
+            cmdChatTeleportCancel(arg.Player(), string.Empty, new string[] { });
+        }
+
+        [ConsoleCommand("sethome")]
+        private void cmdSethomeConsole(ConsoleSystem.Arg arg)
+        {
+            cmdChatSetHome(arg.Player(), string.Empty, arg.Args);
+        }
+
+        [ConsoleCommand("removehome")]
+        private void cmdRemovehomeConsole(ConsoleSystem.Arg arg)
+        {
+            cmdChatRemoveHome(arg.Player(), string.Empty, arg.Args);
         }
     }
 }
