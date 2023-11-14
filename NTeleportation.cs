@@ -22,7 +22,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.7.6")]
+    [Info("NTeleportation", "nivex", "1.7.7")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -34,6 +34,8 @@ namespace Oxide.Plugins
 
         private bool newSave;
         private const string NewLine = "\n";
+        private const string TPA = "tpa";
+        private static readonly string[] nullArg = {};
         private const string PermAdmin = "nteleportation.admin";
         private const string PermRestrictions = "nteleportation.norestrictions";
         private const string ConfigDefaultPermVip = "nteleportation.vip";
@@ -67,7 +69,7 @@ namespace Oxide.Plugins
         private Dictionary<ulong, AdminData> _Admin;
         private Dictionary<ulong, HomeData> _Home;
         private Dictionary<ulong, TeleportData> _TPR;
-        private List<string> TPTToggle;
+        private Dictionary<string, List<string>> TPT = new Dictionary<string, List<string>>();
         private bool changedAdmin;
         private bool changedHome;
         private bool changedTPR;
@@ -86,17 +88,23 @@ namespace Oxide.Plugins
 
         private class MonumentInfoEx
         {
+            public MonumentInfo monument;
             public Vector3 position;
             public float radius;
             public string name;
             public string prefab;
             public MonumentInfoEx() { }
-            public MonumentInfoEx(Vector3 position, float radius, string name, string prefab)
+            public MonumentInfoEx(MonumentInfo monument, Vector3 position, float radius, string name, string prefab)
             {
+                this.monument = monument;
                 this.position = position;
                 this.radius = radius;
                 this.name = name;
                 this.prefab = prefab;
+            }
+            public bool IsInBounds(Vector3 target)
+            {
+                return monument != null && monument.transform.position.y < 0f && TerrainMeta.HeightMap.GetHeight(target) < 0f && monument.IsInBounds(target);
             }
         }
 
@@ -111,6 +119,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Above Water")]
             public bool AboveWater { get; set; } = true;
+
+            [JsonProperty(PropertyName = "Under Water")]
+            public bool UnderWater { get; set; }
 
             [JsonProperty(PropertyName = "Balloon")]
             public bool Balloon { get; set; } = true;
@@ -181,6 +192,9 @@ namespace Oxide.Plugins
 
         public class PluginSettings
         {
+            [JsonProperty(PropertyName = "Delay Saving Data On Server Save")]
+            public double SaveDelay { get; set; } = 4.0;
+			
             [JsonProperty("TPB")]
             public TPBSettings TPB = new TPBSettings();
 
@@ -453,6 +467,11 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Allow Cave")]
             public bool AllowCave { get; set; }
+            [JsonProperty(PropertyName = "Enabled Color")]
+            public string EnabledColor { get; set; } = "green";
+            
+            [JsonProperty(PropertyName = "Disabled Color")]
+            public string DisabledColor { get; set; } = "red";											  
         }
 
         // Added `TPR => Play Sounds To Request Target` (false)
@@ -855,8 +874,67 @@ namespace Oxide.Plugins
             public BasePlayer TargetPlayer { get; set; }
         }
 
+        private List<string> GetMonumentMessages()
+        {
+            return new List<string>
+            {
+                "Abandoned Cabins",
+                "Abandoned Supermarket",
+                "Abandoned Military Base",
+                "Airfield",
+                "Arctic Research Base",
+                "Bandit Camp",
+                "Barn",
+                "Crow's Nest",
+                "Ferry Terminal",
+                "Fishing Village",
+                "Gas Station",
+                "Giant Excavator Pit",
+                "Harbor",
+                "HQM Quarry",
+                "Ice Lake",
+                "Junkyard",
+                "Large Barn",
+                "Large Fishing Village",
+                "Launch Site",
+                "Lighthouse",
+                "Military Tunnel",
+                "Mining Outpost",
+                "Missile Silo",
+                "Mountain",
+                "Oil Rig",
+                "Large Oil Rig",
+                "Outpost",
+                "Oxum's Gas Station",
+                "Power Plant",
+                "Ranch",
+                "Radtown",
+                "Satellite Dish",
+                "Sewer Branch",
+                "Stone Quarry",
+                "Substation",
+                "Sulfur Quarry",
+                "The Supermarket",
+                "The Dome",
+                "Train Tunnel",
+                "Train Yard",
+                "Underwater Lab",
+                "Water Treatment Plant",
+                "Water Well",
+                "Wild Swamp",
+            };
+        }
+
         protected override void LoadDefaultMessages()
         {
+            if (!_cmcCompleted)
+            {
+                timer.Once(1f, LoadDefaultMessages);
+                return;
+            }
+
+            var monumentMessages = GetMonumentMessages();
+
             var en = new Dictionary<string, string>
             {
                 {"ErrorTPR", "Teleporting to {0} is blocked ({1})"},
@@ -882,6 +960,7 @@ namespace Oxide.Plugins
                 {"AdminTPConsoleTPPlayerTarget", "{0} was teleported to you!"},
                 {"HomeTP", "You teleported to your home '{0}'!"},
                 {"HomeAdminTP", "You teleported to {0}'s home '{1}'!"},
+                {"HomeIce", "You can't use home on ice!"},
                 {"HomeSave", "You have saved the current location as your home!"},
                 {"HomeNoFoundation", "You can only use a home location on a foundation!"},
                 {"HomeFoundationNotOwned", "You can't use home on someone else's house."},
@@ -913,9 +992,11 @@ namespace Oxide.Plugins
                 {"HomeTPSwimming", "You can't set your home while swimming!"},
                 {"HomeTPCrafting", "You can't set your home while crafting!"},
                 {"Request", "You've requested a teleport to {0}!"},
-                {"RequestUI", "<color=#FFA500>TP Request:</color> {0}"},
+                {"RequestUI", "<size=14><color=#FFA500>TP Request:\n</color> {0}</size>"},
                 {"RequestTarget", "{0} requested to be teleported to you! Use '/tpa' to accept!"},
                 {"RequestTargetOff", "Your request has been cancelled as the target is offline now." },
+                {"RequestAccept", "<size=12>Accept</size>" },
+                {"RequestReject", "<size=12>Reject</size>" },
                 {"TPR_NoClan_NoFriend_NoTeam", "This command is only available to friends or teammates or clanmates!"},
                 {"PendingRequest", "You already have a request pending, cancel that request or wait until it gets accepted or times out!"},
                 {"PendingRequestTarget", "The player you wish to teleport to already has a pending request, try again later!"},
@@ -959,6 +1040,7 @@ namespace Oxide.Plugins
                 {"TPMounted", "You can't teleport while seated!"},
                 {"TPBuildingBlocked", "You can't teleport while in a building blocked area!"},
                 {"TPAboveWater", "You can't teleport while above water!"},
+                {"TPUnderWater", "You can't teleport while under water!"},
                 {"TPTargetBuildingBlocked", "You can't teleport into a building blocked area!"},
                 {"TPTargetInsideBlock", "You can't teleport into a foundation!"},
                 {"TPTargetInsideEntity", "You can't teleport into another entity!"},
@@ -1118,6 +1200,18 @@ namespace Oxide.Plugins
                         "Daily amount of teleports: {2}"
                     })
                 },
+                
+                {"TPT_True", "enabled"},
+                {"TPT_False", "disabled"},
+                {"TPT_clan", "{1} clan has been {0}."},
+                {"TPT_friend", "{1} friend has been {0}."},
+                {"TPT_team", "{1} team has been {0}."},
+                {"NotValidTPT", "Not valid, player is not"},
+                {"NotValidTPTFriend", " a friend!"},
+                {"NotValidTPTTeam", " on your team!"},
+                {"NotValidTPTClan", " in your clan!"},												  
+                {"TPTInfo", "{4} auto accepts teleport requests.\n<color={5}>Green</color> = <color={5}>Enabled</color>\n<color={6}>Red</color> = <color={6}>Disabled</color>\n\n/{0} <color={1}>clan</color> - Toggle {4} for clan members/allies.\n/{0} <color={2}>team</color> - Toggle {4} for teammates.\n/{0} <color={3}>friend</color> - Toggle {4} for friends."},
+                
                 {"PlayerNotFound", "The specified player couldn't be found please try again!"},
                 {"MultiplePlayers", "Found multiple players: {0}"},
                 {"CantTeleportToSelf", "You can't teleport to yourself!"},
@@ -1345,6 +1439,11 @@ namespace Oxide.Plugins
                 en[key] = key;
             }
 
+            foreach (var key in monumentMessages)
+            {
+                en[key] = key;
+            }
+
             lang.RegisterMessages(en, this, "en");
 
             var ru = new Dictionary<string, string>
@@ -1372,6 +1471,7 @@ namespace Oxide.Plugins
                 {"AdminTPConsoleTPPlayerTarget", "{0} был телепортирован к вам!"},
                 {"HomeTP", "Вы телепортированы в ваш дом '{0}'!"},
                 {"HomeAdminTP", "Вы телепортированы к дому '{1}' принадлежащему {0}!"},
+                {"HomeIce", "Ви не можете зберегти місце розташування як будинок на крижаному озері!"},
                 {"HomeSave", "Вы сохранили текущее местоположение как ваш дом!"},
                 {"HomeNoFoundation", "Использовать местоположение в качестве дома разрешено только на фундаменте!"},
                 {"HomeFoundationNotOwned", "Вы не можете использовать команду home в чужом доме."},
@@ -1403,9 +1503,11 @@ namespace Oxide.Plugins
                 {"HomeTPSwimming", "Вы не можете устанавливать местоположение а качестве дома пока плывёте!"},
                 {"HomeTPCrafting", "Вы не можете устанавливать местоположение а качестве дома в процессе крафта!"},
                 {"Request", "Вы запросили телепортацию к {0}!"},
-                {"RequestUI", "<color=#FFA500>TP Request:</color> {0}"},
+                {"RequestUI", "<size=14><color=#FFA500>TP Request:\n</color> {0}</size>"},
                 {"RequestTarget", "{0} запросил телепортацию к вам! Используйте <color=yellow>/tpa</color>, чтобы принять!"},
                 {"RequestTargetOff", "Ваш запрос был отменен, так как цель сейчас не в сети." },
+                {"RequestAccept", "<size=12>Принять</size>" },
+                {"RequestReject", "<size=12>Отказаться</size>" },
                 {"TPR_NoClan_NoFriend_NoTeam", "Эта команда доступна только друзьям, участникам команды или клана!"},
                 {"PendingRequest", "У вас уже есть активный запрос, отмените его, ожидайте подтверждения, либо отмены по таймауту!"},
                 {"PendingRequestTarget", "У игрока, к которому вы хотите телепортироваться уже есть активный запрос, попробуйте позже!"},
@@ -1449,6 +1551,7 @@ namespace Oxide.Plugins
                 {"TPMounted", "Вы не можете телепортироваться, когда сидите!"},
                 {"TPBuildingBlocked", "Вы не можете телепортироваться, находясь в зоне блокировки строительства!"},
                 {"TPAboveWater", "Вы не можете телепортироваться находясь над водой!"},
+                {"TPUnderWater", "Вы не можете телепортироваться под водой!"},
                 {"TPTargetBuildingBlocked", "Вы не можете телепортироваться в зону, где блокировано строительство!"},
                 {"TPTargetInsideBlock", "Вы не можете телепортироваться в фундамент!"},
                 {"TPTargetInsideRock", "Вы не можете телепортироваться в скалу!"},
@@ -1608,6 +1711,18 @@ namespace Oxide.Plugins
                         "Ежедневный лимит телепортаций: {2}"
                     })
                 },
+                
+                {"TPT_True", "включено"},
+                {"TPT_False", "выключено"},
+                {"TPT_clan", "{1} clan теперь {0}."},
+                {"TPT_friend", "{1} friend теперь {0}."},
+                {"TPT_team", "{1} team теперь {0}."},
+                {"NotValidTPT", "Неверно, игрок не"},
+                {"NotValidTPTFriend", " друг!"},
+                {"NotValidTPTTeam", " в вашей команде!"},
+                {"NotValidTPTClan", " в вашем клане!"},
+                // TODO: Fix not being in Russian.
+                {"TPTInfo", "{4} auto accepts teleport requests.\n<color={5}>Green</color> = <color={5}>Enabled</color>\n<color={6}>Red</color> = <color={6}>Disabled</color>\n\n/{0} <color={1}>clan</color> - Toggle {4} for clan members/allies.\n/{0} <color={2}>team</color> - Toggle {4} for teammates.\n/{0} <color={3}>friend</color> - Toggle {4} for friends."},
                 {"PlayerNotFound", "Указанный игрок не обнаружен, пожалуйста попробуйте ещё раз!"},
                 {"MultiplePlayers", "Найдено несколько игроков: {0}"},
                 {"CantTeleportToSelf", "Вы не можете телепортироваться к самому себе!"},
@@ -1833,6 +1948,11 @@ namespace Oxide.Plugins
                 ru[key] = key;
             }
 
+            foreach (var key in monumentMessages)
+            {
+                ru[key] = key;
+            }
+
             lang.RegisterMessages(ru, this, "ru");
 
             var uk = new Dictionary<string, string>
@@ -1860,6 +1980,7 @@ namespace Oxide.Plugins
                 {"AdminTPConsoleTPPlayerTarget", "{0} був телепортований до вас!"},
                 {"HomeTP", "Ви телепортовані до вашого будинку '{0}'!"},
                 {"HomeAdminTP", "Ви телепортовані до будинку '{1}', що належить {0}!"},
+                {"HomeIce", "Вы не можете сохранить местоположение в качестве дома на ледяном озере!"},
                 {"HomeSave", "Ви зберегли поточне розташування як ваш будинок!"},
                 {"HomeNoFoundation", "Використовувати місцезнаходження як будинок дозволено тільки на фундаменті!"},
                 {"HomeFoundationNotOwned", "Ви не можете використовувати команду home у чужому домі."},
@@ -1891,9 +2012,11 @@ namespace Oxide.Plugins
                 {"HomeTPSwimming", "Ви не можете встановлювати місце розташування в якості будинку поки пливете!"},
                 {"HomeTPCrafting", "Ви не можете встановлювати місце розташування як будинок в процесі крафту!"},
                 {"Request", "Ви запросили телепортацію до {0}!"},
-                {"RequestUI", "<color=#FFA500>TP Request:</color> {0}"},
+                {"RequestUI", "<size=14><color=#FFA500>TP Request:</color> {0}</size>"},
                 {"RequestTarget", "{0} запросив телепортацію до вас! Використовуйте <color=yellow>/tpa</color>, щоб прийняти!"},
                 {"RequestTargetOff", "Ваш запит було скасовано, оскільки ціль зараз не в мережі." },
+                {"RequestAccept", "<size=12>Принять</size>" },
+                {"RequestReject", "<size=12>Отказаться</size>" },
                 {"TPR_NoClan_NoFriend_NoTeam", "Ця команда доступна лише друзям, учасникам команди або клану!"},
                 {"PendingRequest", "У вас вже є активний запит, скасуйте його, чекайте на підтвердження, або скасування по таймууту!"},
                 {"PendingRequestTarget", "У гравця, до якого ви хочете телепортуватися, вже є активний запит, спробуйте пізніше!"},
@@ -1937,6 +2060,7 @@ namespace Oxide.Plugins
                 {"TPMounted", "Ви не можете телепортуватись, коли сидите!"},
                 {"TPBuildingBlocked", "Ви не можете телепортуватися, перебуваючи у зоні блокування будівництва!"},
                 {"TPAboveWater", "Ви не можете телепортуватися, перебуваючи над водою!"},
+                {"TPUnderWater", "Ви не можете телепортуватися під воду!"},
                 {"TPTargetBuildingBlocked", "Ви не можете телепортуватися до зони, де блоковано будівництво!"},
                 {"TPTargetInsideBlock", "Ви не можете телепортуватися у фундамент!"},
                 {"TPTargetInsideRock", "Ви не можете телепортуватись у скелю!"},
@@ -2096,6 +2220,19 @@ namespace Oxide.Plugins
                         "Щоденний ліміт телепортацій: {2}"
                     })
                 },
+                
+                {"TPT_True", "enabled"},
+                {"TPT_False", "disabled"},
+                {"TPT_clan", "{1} clan has been {0}."},
+                {"TPT_friend", "{1} friend has been {0}."},
+                {"TPT_team", "{1} team has been {0}."},
+                {"NotValidTPT", "Not valid, player is not"},
+                {"NotValidTPTFriend", " a friend!"},
+                {"NotValidTPTTeam", " on your team!"},
+                {"NotValidTPTClan", " in your clan!"},
+												  
+                {"TPTInfo", "{4} auto accepts teleport requests.\n<color={5}>Green</color> = <color={5}>Enabled</color>\n<color={6}>Red</color> = <color={6}>Disabled</color>\n\n/{0} <color={1}>clan</color> - Toggle {4} for clan members/allies.\n/{0} <color={2}>team</color> - Toggle {4} for teammates.\n/{0} <color={3}>friend</color> - Toggle {4} for friends."},
+                				
                 {"PlayerNotFound", "Вказаного гравця не виявлено, будь ласка, спробуйте ще раз!"},
                 {"MultiplePlayers", "Знайдено декілька гравців: {0}"},
                 {"CantTeleportToSelf", "Ви не можете телепортуватися до себе!"},
@@ -2321,6 +2458,11 @@ namespace Oxide.Plugins
                 uk[key] = key;
             }
 
+            foreach (var key in monumentMessages)
+            {
+                uk[key] = key;
+            }
+
             lang.RegisterMessages(uk, this, "uk");
         }
 
@@ -2370,8 +2512,8 @@ namespace Oxide.Plugins
             if (!config.Home.AllowTugboats) _Home.Values.ToList().ForEach(homeData => { if (homeData?.boats?.Count > 0) { homeData.boats.Clear(); changedHome = true; } });
 
             dataTPT = GetFile("TPT");
-            try { TPTToggle = dataTPT.ReadObject<List<string>>(); } catch (Exception ex) { Puts("TPT datafile: {0}", ex); }
-            if (TPTToggle == null) { TPTToggle = new List<string>(); changedTPT = true; }
+            try { TPT = dataTPT.ReadObject<Dictionary<string, List<string>>>(); } catch { }
+            if (TPT == null) { new Dictionary<string, List<string>>(); changedTPT = true; }
 
             foreach (var entry in config.DynamicCommands)
             {
@@ -2695,6 +2837,8 @@ namespace Oxide.Plugins
             AddCovalenceCommand("tpb", nameof(CommandTeleportBack));
             AddCovalenceCommand("tpa", nameof(CommandTeleportAccept));
             AddCovalenceCommand("tpat", nameof(CommandTeleportAcceptToggle));
+            AddCovalenceCommand("tpt", nameof(CommandTeleportAcceptToggle));
+            AddCovalenceCommand("atp", nameof(CommandTeleportAcceptToggle));
             AddCovalenceCommand("wipehomes", nameof(CommandWipeHomes));
             AddCovalenceCommand("tphelp", nameof(CommandTeleportHelp));
             AddCovalenceCommand("tpinfo", nameof(CommandTeleportInfo));
@@ -2713,6 +2857,18 @@ namespace Oxide.Plugins
 
         void OnServerSave()
         {
+            if (config.Settings.SaveDelay > 0)
+            {
+                timer.Once((float)config.Settings.SaveDelay, SaveAllInstant);
+            }
+            else
+            {
+                SaveAllInstant();
+            }
+        }
+
+        void SaveAllInstant()
+        {
             SaveTeleportsAdmin();
             SaveTeleportsHome();
             SaveTeleportsTPR();
@@ -2720,11 +2876,11 @@ namespace Oxide.Plugins
             SaveTeleportsTown();
         }
 
-        void OnServerShutdown() => OnServerSave();
+        void OnServerShutdown() => SaveAllInstant();
 
         void Unload()
         {
-            OnServerSave();
+            SaveAllInstant();
             foreach (BasePlayer current in BasePlayer.activePlayerList)
             {
                 DestroyTeleportRequestCUI(current);
@@ -2866,8 +3022,8 @@ namespace Oxide.Plugins
 
         private void SaveTeleportsTPT()
         {
-            if (TPTToggle == null || !changedTPT) return;
-            dataTPT.WriteObject(TPTToggle);
+            if (TPT == null || !changedTPT) return;
+            dataTPT.WriteObject(TPT);
             changedTPT = false;
         }
 
@@ -2907,6 +3063,7 @@ namespace Oxide.Plugins
         }
 
         private Coroutine _cmc;
+        private bool _cmcCompleted;
 
         private IEnumerator SetupMonuments()
         {
@@ -2915,7 +3072,7 @@ namespace Oxide.Plugins
             {
                 if (prefab.id == 1724395471 && prefab.category != "IGNORE_MONUMENT")
                 {
-                    yield return CalculateMonumentSize(new Vector3(prefab.position.x, prefab.position.y, prefab.position.z), prefab.category, "monument_marker");
+                    yield return CalculateMonumentSize(null, new Vector3(prefab.position.x, prefab.position.y, prefab.position.z), prefab.category, "monument_marker");
                 }
                 if (++checks >= 1000)
                 {
@@ -2927,6 +3084,14 @@ namespace Oxide.Plugins
             {
                 if (monument.name.Contains("monument_marker"))
                 {
+                    foreach (var m in monuments)
+                    {
+                        if (m.monument == null && monument.transform.position == m.position)
+                        {
+                            m.monument = monument;
+                            break;
+                        }
+                    }
                     continue;
                 }
                 var monPos = monument.transform.position;
@@ -2965,10 +3130,11 @@ namespace Oxide.Plugins
 #if DEBUG
                     Puts($"Adding Monument: {name}, pos: {monPos}, size: {dist}");
 #endif
-                    monuments.Add(new MonumentInfoEx(monument.transform.position, dist, monument.displayPhrase.english.Trim(), monument.name));
+                    monuments.Add(new MonumentInfoEx(monument, monument.transform.position, dist, monument.displayPhrase.english.Trim(), monument.name));
                 }
-                else yield return CalculateMonumentSize(monument.transform.position, string.IsNullOrEmpty(monument.displayPhrase.english.Trim()) ? monument.name : monument.displayPhrase.english.Trim(), monument.name);
+                else yield return CalculateMonumentSize(monument, monument.transform.position, string.IsNullOrEmpty(monument.displayPhrase.english.Trim()) ? monument.name : monument.displayPhrase.english.Trim(), monument.name);
             }
+            _cmcCompleted = true;
             _cmc = null;
         }
 
@@ -3109,7 +3275,7 @@ namespace Oxide.Plugins
             yield return null;
         }
 
-        public IEnumerator CalculateMonumentSize(Vector3 from, string text, string prefab)
+        public IEnumerator CalculateMonumentSize(MonumentInfo monument, Vector3 from, string text, string prefab)
         {
             int checks = 0;
             float radius = 15f;
@@ -3134,7 +3300,7 @@ namespace Oxide.Plugins
                 }
                 radius += 15f;
             }
-            monuments.Add(new MonumentInfoEx(from, radius, text, prefab));
+            monuments.Add(new MonumentInfoEx(monument, from, radius, text, prefab));
 
 #if DEBUG
             Puts($"Adding Monument: {text}, pos: {from}, size: {radius}");
@@ -3178,25 +3344,21 @@ namespace Oxide.Plugins
             return true;
         }
 
-        private void TeleportRequestUI(BasePlayer player, string msg)
+        private void TeleportRequestUI(BasePlayer player, string displayName)
         {
-            if (!config.TPR.UI || string.IsNullOrEmpty(msg)) return;
-            DestroyTeleportRequestCUI(player);
+            if (!config.TPR.UI || string.IsNullOrEmpty(displayName)) return;
             var elements = new CuiElementContainer();
-            elements.Add(new CuiPanel { Image = { Color = "1 1 1 0.2" }, RectTransform = { AnchorMin = "0.805 0.944", AnchorMax = "1 1" }, CursorEnabled = false }, "Overlay", "TPRequest1");
-            elements.Add(new CuiLabel { Text = { Text = msg, FontSize = 15, Align = TextAnchor.MiddleCenter }, RectTransform = { AnchorMin = "0.81 0.975", AnchorMax = "0.94 0.999" } }, "Overlay", "TPRequest2");
-            elements.Add(new CuiButton { Button = { Command = "ntp.accept", Color = "0 0.78 0 0.5" }, RectTransform = { AnchorMin = "0.816 0.946", AnchorMax = "0.894 0.967" }, Text = { Text = "Accept", FontSize = 12, Align = TextAnchor.MiddleCenter } }, "Overlay", "TPRequest3");
-            elements.Add(new CuiButton { Button = { Command = "ntp.reject", Color = "0.78 0 0 0.5" }, RectTransform = { AnchorMin = "0.901 0.946", AnchorMax = "0.979 0.967" }, Text = { Text = "Reject", FontSize = 12, Align = TextAnchor.MiddleCenter } }, "Overlay", "TPRequest4");
-            CuiHelper.AddUi(player, elements);
+            elements.Add(new CuiPanel { CursorEnabled = false, Image = { Color = "0 0 0 0.75" }, RectTransform = { AnchorMin = "0.5 0", AnchorMax = "0.5 0", OffsetMin = "-154.835 87.648", OffsetMax = "135.234 155.152" } }, "Overlay", "TPR_MAIN_UI", "TPR_MAIN_UI");
+            elements.Add(new CuiElement { Name = "TPR_INFO_LBL", Parent = "TPR_MAIN_UI", DestroyUi = "TPR_INFO_LBL", Components = { new CuiTextComponent { Text = _("RequestUI", player, displayName), Font = "robotocondensed-regular.ttf", Align = TextAnchor.UpperCenter }, new CuiRectTransformComponent { AnchorMin = "0.5 0.5", AnchorMax = "0.5 0.5", OffsetMin = "-142.335 -3.676", OffsetMax = "142.335 30.076" } } });
+            elements.Add(new CuiButton { Button = { Command = "ntp.accept", Color = "0 0.78 0 0.75" }, Text = { Text = _("RequestAccept", player), Font = "robotocondensed-regular.ttf", Align = TextAnchor.MiddleCenter, Color = "1 1 1 1" }, RectTransform = { AnchorMin = "0.5 0.5", AnchorMax = "0.5 0.5", OffsetMin = "-138.395 -28.883", OffsetMax = "-28.406 -8.589" } }, "TPR_MAIN_UI", "TPR_ACCEPT_BTN", "TPR_ACCEPT_BTN");
+            elements.Add(new CuiButton { Button = { Command = "ntp.reject", Color = "0.78 0 0 0.75" }, Text = { Text = _("RequestReject", player), Font = "robotocondensed-regular.ttf", Align = TextAnchor.MiddleCenter, Color = "1 1 1 1" }, RectTransform = { AnchorMin = "0.5 0.5", AnchorMax = "0.5 0.5", OffsetMin = "29.305 -28.883", OffsetMax = "139.295 -8.589" } }, "TPR_MAIN_UI", "TPR_REJECT_BTN", "TPR_REJECT_BTN");
             timer.Once(config.TPR.RequestDuration, () => DestroyTeleportRequestCUI(player));
+            CuiHelper.AddUi(player, elements);
         }
 
         public void DestroyTeleportRequestCUI(BasePlayer player)
         {
-            CuiHelper.DestroyUi(player, "TPRequest1");
-            CuiHelper.DestroyUi(player, "TPRequest2");
-            CuiHelper.DestroyUi(player, "TPRequest3");
-            CuiHelper.DestroyUi(player, "TPRequest4");
+            CuiHelper.DestroyUi(player, "TPR_MAIN_UI");
         }
 
         [ConsoleCommand("ntp.accept")]
@@ -3245,12 +3407,13 @@ namespace Oxide.Plugins
         {
             if (DisabledCommandData.DisabledCommands.Contains(command.ToLower())) { user.Reply("Disabled command: " + command); return; }
             var player = user.Object as BasePlayer;
-            if (!IsAllowedMsg(player, PermTp) || !TeleportInForcedBoundary(player)) return;
+            if (!user.IsServer && (!IsAllowedMsg(player, PermTp) || !TeleportInForcedBoundary(player))) return;
             BasePlayer target;
             float x, y, z;
             switch (args.Length)
             {
                 case 1:
+                    if (player == null) return;
                     target = FindPlayersSingle(args[0], player);
                     if (target == null) return;
                     if (target == player)
@@ -3270,33 +3433,43 @@ namespace Oxide.Plugins
                     break;
                 case 2:
                     var origin = FindPlayersSingle(args[0], player);
-                    if (origin == null) return;
                     target = FindPlayersSingle(args[1], player);
-                    if (target == null) return;
+                    if (target == null && origin != null)
+                    {
+                        var loc = GetAdminLocation(args[1]);
+                        if (loc != Vector3.zero)
+                        {
+                            Teleport(origin, loc, IsAllowed(origin, PermTp));
+                            return;
+                        }
+                    }
+                    if (origin == null || target == null) return;
                     if (target == origin)
                     {
                         PrintMsgL(player, "CantTeleportPlayerToSelf");
                         return;
                     }
-                    if (permission.UserHasPermission(player.UserIDString, PermDisallowTpToMe))
+                    if (permission.UserHasPermission(target.UserIDString, PermDisallowTpToMe))
                     {
                         PrintMsgL(player, "CantTeleportPlayerToYourself");
                         return;
                     }
                     Teleport(origin, target);
+                    Puts(_("LogTeleportPlayer", null, user.Name, origin.displayName, target.displayName));
+                    if (player == null) return;
                     PrintMsgL(player, "AdminTPPlayers", origin.displayName, target.displayName);
                     PrintMsgL(origin, "AdminTPPlayer", player.displayName, target.displayName);
                     if (config.Admin.AnnounceTeleportToTarget)
                         PrintMsgL(target, "AdminTPPlayerTarget", player.displayName, origin.displayName);
-                    Puts(_("LogTeleportPlayer", null, player.displayName, origin.displayName, target.displayName));
                     break;
                 case 3:
+                    if (player == null) return;
                     if (!float.TryParse(args[0].Replace(",", string.Empty), out x) || !float.TryParse(args[1].Replace(",", string.Empty), out y) || !float.TryParse(args[2], out z))
                     {
                         PrintMsgL(player, "InvalidCoordinates");
                         return;
                     }
-                    if (config.Settings.CheckBoundaries && !CheckBoundaries(x, y, z)) // added this option because I HATE boundaries
+                    if (config.Settings.CheckBoundaries && !CheckBoundaries(x, y, z))
                     {
                         PrintMsgL(player, "AdminTPOutOfBounds");
                         PrintMsgL(player, "AdminTPBoundaries", boundary);
@@ -3309,7 +3482,7 @@ namespace Oxide.Plugins
                 case 4:
                     target = FindPlayersSingle(args[0], player);
                     if (target == null) return;
-                    if (permission.UserHasPermission(player.UserIDString, PermDisallowTpToMe))
+                    if (player != null && permission.UserHasPermission(target.UserIDString, PermDisallowTpToMe) && target != player)
                     {
                         PrintMsgL(player, "CantTeleportPlayerToYourself");
                         return;
@@ -3326,6 +3499,7 @@ namespace Oxide.Plugins
                         return;
                     }
                     Teleport(target, x, y, z);
+                    if (player == null) return;
                     if (player == target)
                     {
                         PrintMsgL(player, "AdminTPCoordinates", player.transform.position);
@@ -3343,6 +3517,19 @@ namespace Oxide.Plugins
                     PrintMsgL(player, "SyntaxCommandTP");
                     break;
             }
+        }
+
+        private Vector3 GetAdminLocation(string value)
+        {
+            foreach (var adminData in _Admin.Values)
+            {
+                Vector3 loc;
+                if (adminData.Locations.TryGetValue(value, out loc))
+                {
+                    return loc;
+                }
+            }
+            return Vector3.zero;
         }
 
         private void CommandTeleportNear(IPlayer user, string command, string[] args)
@@ -4362,18 +4549,31 @@ namespace Oxide.Plugins
         {
             if (DisabledCommandData.DisabledCommands.Contains(command.ToLower())) { user.Reply("Disabled command: " + command); return; }
             var player = user.Object as BasePlayer;
-            if (!IsAllowedMsg(player, PermTpR)) return;
-            if (TPTToggle.Contains(player.UserIDString))
+            if (!player || !IsAllowedMsg(player, PermTpT))
+
+                return;
+            if (args.Length < 1)
             {
-                TPTToggle.Remove(player.UserIDString);
-                PrintMsgL(player, "AcceptToggleOn");
+                PrintMsgL(player, "TPTInfo", command, IsEnabled(player.UserIDString, "clan") ? config.TPT.EnabledColor : config.TPT.DisabledColor, 
+                    IsEnabled(player.UserIDString, "team") ? config.TPT.EnabledColor : config.TPT.DisabledColor, 
+                    IsEnabled(player.UserIDString, "friend") ? config.TPT.EnabledColor : config.TPT.DisabledColor,
+                    command.ToUpper(), config.TPT.EnabledColor, config.TPT.DisabledColor);
+                return;
             }
-            else
+            switch (args[0].ToLower())
             {
-                TPTToggle.Add(player.UserIDString);
-                PrintMsgL(player, "AcceptToggleOff");
+                case "friend":
+                case "clan":
+                case "team":
+                {
+                    ToggleTPTEnabled(player, args[0].ToLower(), command);
+                    return;
+                }
             }
-            changedTPT = true;
+            PrintMsgL(player, "TPTInfo", command, IsEnabled(player.UserIDString, "clan") ? config.TPT.EnabledColor : config.TPT.DisabledColor, 
+                IsEnabled(player.UserIDString, "team") ? config.TPT.EnabledColor : config.TPT.DisabledColor, 
+                IsEnabled(player.UserIDString, "friend") ? config.TPT.EnabledColor : config.TPT.DisabledColor,
+                command.ToUpper(), config.TPT.EnabledColor, config.TPT.DisabledColor);
         }
 
         public bool IsOnSameTeam(ulong playerId, ulong targetId)
@@ -4386,6 +4586,10 @@ namespace Oxide.Plugins
         {
             return Friends != null && Convert.ToBoolean(Friends?.Call("AreFriends", playerId, targetId));
         }
+        private bool IsFriend(string playerId, string targetId)
+        {
+            return Friends != null && Convert.ToBoolean(Friends?.Call("IsFriend", playerId, targetId));
+        }
 
         private bool IsInSameClan(string playerId, string targetId)
         {
@@ -4394,25 +4598,59 @@ namespace Oxide.Plugins
 
         private object OnTeleportRequested(BasePlayer target, BasePlayer player)
         {
-            if (!permission.UserHasPermission(target.UserIDString, PermTpT) || !permission.UserHasPermission(player.UserIDString, PermTpT) || TPTToggle.Contains(target.UserIDString))
+            if (!permission.UserHasPermission(target.UserIDString, PermTpT) || !permission.UserHasPermission(player.UserIDString, PermTpT))// || !TPT.ContainsKey(target.UserIDString))
             {
                 return null;
             }
-
-            if (config.TPT.UseClans && IsInSameClan(player.UserIDString, target.UserIDString))
+            
+            if ((config.TPT.UseClans && IsInSameClan(player.UserIDString, target.UserIDString) && !TPT.ContainsKey(target.UserIDString)) 
+                || (config.TPT.UseClans && IsEnabled(target.UserIDString, "clan") && IsInSameClan(player.UserIDString, target.UserIDString)))
             {
-                target.SendConsoleCommand("chat.say /tpa");
+                CommandTeleportAccept(target.IPlayer, TPA, nullArg);
             }
-            else if (config.TPT.UseFriends && AreFriends(player.UserIDString, target.UserIDString))
+            else if ((config.TPT.UseFriends && IsFriend(player.UserIDString, target.UserIDString) && !TPT.ContainsKey(target.UserIDString))
+                     || (config.TPT.UseFriends && IsEnabled(target.UserIDString, "friend") && IsFriend(player.UserIDString, target.UserIDString)))
             {
-                target.SendConsoleCommand("chat.say /tpa");
+                CommandTeleportAccept(target.IPlayer, TPA, nullArg);
             }
-            else if (config.TPT.UseTeams && IsOnSameTeam(player.userID, target.userID))
+            else if ((config.TPT.UseTeams && IsOnSameTeam(player.userID, target.userID) && !TPT.ContainsKey(target.UserIDString))
+                     || (config.TPT.UseTeams && IsEnabled(target.UserIDString, "team") && IsOnSameTeam(player.userID, target.userID)))
             {
-                target.SendConsoleCommand("chat.say /tpa");
+                CommandTeleportAccept(target.IPlayer, TPA, nullArg);
             }
 
             return true;
+        }
+        
+        bool IsEnabled(string targetId, string value)
+        {
+            if (TPT.ContainsKey(targetId) && TPT[targetId].Contains(value))
+            {
+                return false;
+            }
+            return true;
+        }
+        
+        void ToggleTPTEnabled(BasePlayer target, string value, string command)
+        {
+            List<string> list;
+            if (!TPT.TryGetValue(target.UserIDString, out list))
+            {
+                TPT[target.UserIDString] = list = new List<string>();
+            }
+            if (list.Contains(value))
+            {
+                list.Remove(value);
+                if (list.IsEmpty()) TPT.Remove(target.UserIDString);
+            }
+            else
+            {
+                list.Add(value);
+            }
+            string status = lang.GetMessage($"TPT_{!list.Contains(value)}", this, target.UserIDString);
+            string message = string.Format(lang.GetMessage($"TPT_{value}", this, target.UserIDString), status, command.ToUpper());
+            PrintMsg(target, message);
+            changedTPT = true;
         }
 
         private string GetMultiplePlayers(List<BasePlayer> players)
@@ -4527,7 +4765,7 @@ namespace Oxide.Plugins
                 var err2 = CheckPlayer(target, config.TPR.UsableIntoBuildingBlocked, CanCraftTPR(target), true, "tpr");
                 if (err2 != null)
                 {
-                    string error = string.Format(lang.GetMessage("ErrorTPR", this, player.UserIDString), target.displayName, err2);
+                    string error = string.Format(lang.GetMessage("ErrorTPR", this, player.UserIDString), target.displayName, lang.GetMessage(err2, this, player.UserIDString));
                     PrintMsg(player, error);
                     return;
                 }
@@ -4669,7 +4907,7 @@ namespace Oxide.Plugins
                 }
                 if (Interface.CallHook("OnTeleportRequested", target, player) == null)
                 {
-                    TeleportRequestUI(target, _("RequestUI", target, player.displayName));
+                    TeleportRequestUI(target, player.displayName);
                 }
             }
             else
@@ -4694,6 +4932,7 @@ namespace Oxide.Plugins
             if (!PendingRequests.TryGetValue(player.userID, out reqTimer))
             {
                 PrintMsgL(player, "NoPendingRequest");
+                DestroyTeleportRequestCUI(player);
                 return;
             }
 #if DEBUG
@@ -4742,6 +4981,11 @@ namespace Oxide.Plugins
                     if (IsStandingOnEntity(player.transform.position, Layers.Mask.Construction, out entity, new string[2] { "floor", "roof" }))
                     {
                         PrintMsgL(player, "HomeNoFoundation");
+                        return;
+                    }
+                    if (IsBlockedOnIceberg(player.transform.position))
+                    {
+                        PrintMsgL(player, "HomeIce");
                         return;
                     }
                 }
@@ -5684,19 +5928,16 @@ namespace Oxide.Plugins
             if (DisabledCommandData.DisabledCommands.Contains(command.ToLower())) { user.Reply("Disabled command: " + command); return; }
             var player = user.Object as BasePlayer;
             if (!player || !player.IsAdmin) return;
-            
             foreach (var mi in monuments)
             {
                 player.SendConsoleCommand("ddraw.sphere", 30f, Color.red, mi.position, mi.radius);
-                player.SendConsoleCommand("ddraw.text", 30f, Color.blue, mi.position, mi.name);
+                player.SendConsoleCommand("ddraw.text", 30f, Color.blue, mi.position, $"<size=22>{mi.name}</size>");
             }
-
             foreach (var cave in caves)
             {
                 string name = cave.Key.Contains(":") ? cave.Key.Substring(0, cave.Key.LastIndexOf(":")) : cave.Key.TrimEnd();
-
                 player.SendConsoleCommand("ddraw.sphere", 30f, Color.black, cave.Value, 25f);
-                player.SendConsoleCommand("ddraw.text", 30f, Color.cyan, cave.Value, name);
+                player.SendConsoleCommand("ddraw.text", 30f, Color.cyan, cave.Value, $"<size=22>{name}</size>");
             }
         }
 
@@ -5968,6 +6209,26 @@ namespace Oxide.Plugins
 
         private List<string> monumentExceptions = new List<string> { "outpost", "bandit", "substation", "swamp", "compound.prefab" };
 
+        private bool IsInAllowedMonument(Vector3 target, string mode)
+        {
+            foreach (var mi in monuments)
+            {                
+                if (config.Settings.Interrupt.BypassMonumentMarker && mi.prefab.Contains("monument_marker"))
+                {
+                    continue;
+                }
+                if (Vector3Ex.Distance2D(target, mi.position) <= mi.radius || mi.IsInBounds(target))
+                {
+                    if (monumentExceptions.Exists(mi.name.ToLower().Contains))
+                    {
+                        return true;
+                    }
+                    return !config.Settings.Interrupt.Monument || mode != "sethome" && config.Settings.Interrupt.Monuments.Exists(value => mi.name.Contains(value, CompareOptions.OrdinalIgnoreCase));
+                }
+            }
+            return false;
+        }
+
         private string NearMonument(Vector3 target, bool check, string mode)
         {
             foreach (var mi in monuments)
@@ -5977,9 +6238,9 @@ namespace Oxide.Plugins
 
                 float dist = Vector3Ex.Distance2D(target, mi.position);
 #if DEBUG
-                Puts($"Checking {mi.name} dist: {dist}, realdistance: {mi.radius}");
+                Puts($"Checking {mi.name} dist: {dist}, realdistance: {mi.radius}, size: {mi.monument?.Bounds.size.Max()}");
 #endif
-                if (dist <= mi.radius)
+                if (dist <= mi.radius || mi.IsInBounds(target))
                 {
                     if (config.Home.AllowedMonuments.Any(m => mi.name.Equals(m, StringComparison.OrdinalIgnoreCase)))
                     {
@@ -5996,6 +6257,9 @@ namespace Oxide.Plugins
                             return mi.name;
                         }
 
+#if DEBUG
+                        Puts($"{target} is not blocked from {mi.name}");
+#endif
                         return null;
                     }
 #if DEBUG
@@ -6013,7 +6277,7 @@ namespace Oxide.Plugins
             if (CanBypassRestrictions(player.UserIDString)) return null;
             if (config.Settings.Interrupt.Oilrig || config.Settings.Interrupt.Excavator || config.Settings.Interrupt.Monument || mode == "sethome")
             {
-                string monname = NearMonument(player.transform.position, false, mode);
+                string monname = !config.Settings.Interrupt.Safe && player.InSafeZone() ? null : NearMonument(player.transform.position, false, mode);
 
                 if (!string.IsNullOrEmpty(monname))
                 {
@@ -6046,7 +6310,7 @@ namespace Oxide.Plugins
                             }
 
                             if (monname.Contains(":")) monname = monname.Substring(0, monname.IndexOf(":"));
-                            return _("TooCloseToMon", player, monname);
+                            return _("TooCloseToMon", player, _(monname, player));
                         }
                     }
                 }
@@ -6184,15 +6448,20 @@ namespace Oxide.Plugins
                 }
             }
 
-            if (IsWaterBlocked(player, entity))
+            if (IsWaterBlockedAbove(player, entity))
             {
                 return "TPAboveWater";
+            }
+            
+            if (config.Settings.Interrupt.UnderWater && Math.Round(player.transform.position.y, 2) < Math.Round(TerrainMeta.WaterMap.GetHeight(player.transform.position), 2) && !IsInAllowedMonument(player.transform.position, mode))
+            {
+                return "TPUnderWater";
             }
             
             return null;
         }
 
-        private bool IsWaterBlocked(BasePlayer player, BaseEntity entity)
+        private bool IsWaterBlockedAbove(BasePlayer player, BaseEntity entity)
         {
             if (!config.Settings.Interrupt.AboveWater || !AboveWater(player.transform.position))
             {
@@ -6349,7 +6618,7 @@ namespace Oxide.Plugins
         {
             foreach (var blockedItem in ReverseBlockedItems)
             {
-                if (player.inventory.FindItemID(blockedItem.Key) != null)
+                if (player.inventory.FindItemByItemID(blockedItem.Key) != null)
                 {
                     return blockedItem.Value;
                 }
@@ -6436,6 +6705,10 @@ namespace Oxide.Plugins
             {
                 return insideErr;
             }
+            if (IsBlockedOnIceberg(position))
+            {
+                return "HomeIce";
+            }
             if (!config.Home.ForceOnTopOfFoundation || permission.UserHasPermission(userid.ToString(), PermFoundationCheck))
             {
                 return null;
@@ -6454,6 +6727,14 @@ namespace Oxide.Plugins
                 return null;
             }
             return "HomeFoundationNotFriendsOwned";
+        }
+
+        private bool IsBlockedOnIceberg(Vector3 position)
+        {
+            if (!config.Home.AllowIceberg) return false;
+            RaycastHit hit;
+            if (!Physics.SphereCast(position + new Vector3(0f, 1f), 1f, Vector3.down, out hit, 250f, Layers.Mask.Terrain | Layers.Mask.World)) return false;
+            return hit.collider.name.Contains("ice_sheet") || hit.collider.name.Contains("iceberg");
         }
 
         private BuildingBlock GetFoundationOwned(Vector3 position, ulong userID)
