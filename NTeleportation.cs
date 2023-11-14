@@ -21,13 +21,11 @@ using Network;
 /*
     Fixed Interrupt > Hot
     Fixed Interrupt > Cold
-    Fixed Interrupt > Hurt
-    Removed hostile timer message
 */
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.4.3")]
+    [Info("NTeleportation", "nivex", "1.4.4")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -1721,9 +1719,9 @@ namespace Oxide.Plugins
             {
                 if (!player || !hitInfo.hasDamage) return;
                 // 1.0.84 new checks for cold/heat based on major damage for the player
-                if (major == DamageType.Cold && config.Settings.Interrupt.Cold)
+                if (major == DamageType.Cold)
                 {
-                    if (player.metabolism.temperature.value <= config.Settings.MinimumTemp)
+                    if (config.Settings.Interrupt.Cold && player.metabolism.temperature.value <= config.Settings.MinimumTemp)
                     {
                         PrintMsgL(teleportTimer.OriginPlayer, "TPTooCold");
                         if (teleportTimer.TargetPlayer != null)
@@ -1734,9 +1732,9 @@ namespace Oxide.Plugins
                         TeleportTimers.Remove(player.userID);
                     }
                 }
-                else if (major == DamageType.Heat && config.Settings.Interrupt.Hot)
+                else if (major == DamageType.Heat)
                 {
-                    if (player.metabolism.temperature.value >= config.Settings.MaximumTemp)
+                    if (config.Settings.Interrupt.Hot && player.metabolism.temperature.value >= config.Settings.MaximumTemp)
                     {
                         PrintMsgL(teleportTimer.OriginPlayer, "TPTooHot");
                         if (teleportTimer.TargetPlayer != null)
@@ -3048,7 +3046,7 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "SyntaxCommandTPR");
                 return;
             }
-            var targets = FindPlayers(BasePlayer.activePlayerList, args[0]);
+            var targets = FindPlayers(args[0]);
             if (targets.Count <= 0)
             {
                 PrintMsgL(player, "PlayerNotFound");
@@ -4138,7 +4136,7 @@ namespace Oxide.Plugins
                         p.Reply(_("SyntaxConsoleCommandToPos", player));
                         return;
                     }
-                    players = FindPlayers(BasePlayer.allPlayerList, args[0]);
+                    players = FindPlayers(args[0], true);
                     if (players.Count <= 0)
                     {
                         p.Reply(_("PlayerNotFound", player));
@@ -4174,7 +4172,7 @@ namespace Oxide.Plugins
                         p.Reply(_("SyntaxConsoleCommandToPlayer", player));
                         return;
                     }
-                    players = FindPlayers(BasePlayer.allPlayerList, args[0]);
+                    players = FindPlayers(args[0], true);
                     if (players.Count <= 0)
                     {
                         p.Reply(_("PlayerNotFound", player));
@@ -4186,7 +4184,7 @@ namespace Oxide.Plugins
                         return;
                     }
                     var originPlayer = players.First();
-                    players = FindPlayers(BasePlayer.allPlayerList, args[1]);
+                    players = FindPlayers(args[1], true);
                     if (players.Count <= 0)
                     {
                         p.Reply(_("PlayerNotFound", player));
@@ -5349,7 +5347,7 @@ namespace Oxide.Plugins
         #region FindPlayer
         private ulong FindPlayersSingleId(string nameOrIdOrIp, BasePlayer player)
         {
-            var targets = FindPlayers(BasePlayer.allPlayerList, nameOrIdOrIp);
+            var targets = FindPlayers(nameOrIdOrIp, true);
             if (targets.Count > 1)
             {
                 PrintMsgL(player, "MultiplePlayers", string.Join(", ", targets.Select(p => p.displayName).ToArray()));
@@ -5372,7 +5370,7 @@ namespace Oxide.Plugins
         {
             if (args.Length == 0) return null;
             string nameOrIdOrIp = args[0];
-            var targets = FindPlayers(BasePlayer.allPlayerList, nameOrIdOrIp);
+            var targets = FindPlayers(nameOrIdOrIp, true);
             if (targets.Count <= 0)
             {
                 PrintMsgL(player, "PlayerNotFound");
@@ -5396,7 +5394,7 @@ namespace Oxide.Plugins
             return targets.First();
         }
 
-        private static List<BasePlayer> FindPlayers(IEnumerable<BasePlayer> list, string nameOrIdOrIp)
+        private static List<BasePlayer> FindPlayers(string nameOrIdOrIp, bool all = false)
         {
             var players = new List<BasePlayer>();
 
@@ -5405,7 +5403,7 @@ namespace Oxide.Plugins
                 return players;
             }
 
-            foreach (var p in list)
+            foreach (var p in all ? BasePlayer.allPlayerList : BasePlayer.activePlayerList)
             {
                 if (p == null || string.IsNullOrEmpty(p.displayName) || players.Contains(p))
                 {
