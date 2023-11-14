@@ -19,6 +19,18 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
+    1.3.1:
+    Rewrote Offset TPR Target
+        I believe it was possible this was causing players to teleport under the map in rare cases
+    Removed all restrictions that could prevent /tpc from being allowed
+        This should've never been blocked in the first place
+    Blocked teleport when the location of the teleport is within 5 meters of 0, 0, 0
+        Without this the player would be killed when teleported under the map. So we'll just prevent this user error.
+    Auto detect invalid locations for Bandit and Outpost
+        If the distance is further than 100 meters from either location then said location will be reset
+        Without this the player would not be teleported to a valid Bandit or Outpost location
+        This invalid location could be under the map, in a base, etc literally anywhere. So we'll just prevent this user error.
+
     1.3.0:
     Excluded power sub stations from Interrupt TP Monuments
     Fix for caves
@@ -169,7 +181,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.0")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.1")]
     class NTeleportation : RustPlugin
     {
         private string banditPrefab;
@@ -1735,7 +1747,7 @@ namespace Oxide.Plugins
             FindMonuments();  // 1.2.2 location moved from Loaded() to fix outpost and bandit location not being set after a wipe
         }
 
-        List<string> validCommands = new List<string> { "outpost", "bandit", "tp", "home", "sethome", "listhomes", "tpn", "tpl", "tpsave", "tpremove", "tpb", "removehome", "radiushome", "deletehome", "tphome", "homehomes", "tpt", "tpr", "tpa", "wipehomes", "tphelp", "tpinfo", "tpc", "teleport.toplayer", "teleport.topos", "teleport.importhomes", "town", "spm" };
+        List<string> validCommands = new List<string> { "outpost", "bandit", "tp", "home", "sethome", "listhomes", "tpn", "tpl", "tpsave", "tpremove", "tpb", "removehome", "radiushome", "deletehome", "tphome", "homehomes", "tpt", "tpr", "tpa", "wipehomes", "tphelp", "tpinfo", "teleport.toplayer", "teleport.topos", "teleport.importhomes", "town", "spm" };
 
         void OnNewSave(string strFilename)
         {
@@ -2016,6 +2028,13 @@ namespace Oxide.Plugins
                 }
                 else if (monument.name == outpostPrefab)
                 {
+                    if (config.Outpost.Location != Zero && Vector3.Distance(monument.transform.position, config.Outpost.Location) > 100f)
+                    {
+#if DEBUG
+                        Puts("Invalid Outpost location detected");
+#endif
+                        config.Outpost.Location = Zero;
+                    }
                     if (config.Settings.AutoGenOutpost && config.Outpost.Location == Zero)
                     {
 #if DEBUG
@@ -2051,6 +2070,13 @@ namespace Oxide.Plugins
                 }
                 else if (monument.name == banditPrefab)
                 {
+                    if (config.Bandit.Location != Zero && Vector3.Distance(monument.transform.position, config.Bandit.Location) > 100f)
+                    {
+#if DEBUG
+                        Puts("Invalid Bandit location detected");
+#endif
+                        config.Bandit.Location = Zero;
+                    }
                     if (config.Settings.AutoGenBandit && config.Bandit.Location == Zero)
                     {
 #if DEBUG
@@ -3378,7 +3404,8 @@ namespace Oxide.Plugins
                             }
                         }
                     }
-                    Teleport(originPlayer, CheckPosition(player.transform.position), config.TPR.AllowTPB);
+                    var position = CheckPosition(player.transform);
+                    Teleport(originPlayer, position, config.TPR.AllowTPB);
                     var tprData = TPR[originPlayer.userID];
                     tprData.Amount++;
                     tprData.Timestamp = timestamp;
@@ -3394,6 +3421,43 @@ namespace Oxide.Plugins
             PendingRequests.Remove(player.userID);
             PlayersRequests.Remove(player.userID);
             PlayersRequests.Remove(originPlayer.userID);
+        }
+
+        Vector3 CheckPosition(Transform transform)
+        {
+            var a = transform.position;
+
+            if (!config.TPR.OffsetTPRTarget)
+            {
+                return a;
+            }
+
+            foreach (var dir in new List<Vector3> { transform.forward, /*transform.forward * a.z, transform.right * a.x,*/ transform.right })
+            {
+                var b = a + dir + new Vector3(0f, 0.2f, 0f);
+
+                if (IsValidPosition(b))
+                {
+                    return b;
+                }
+            }
+
+            return a;
+        }
+
+        bool IsValidPosition(Vector3 b)
+        {
+            int hits = Physics.OverlapSphereNonAlloc(b, 0.15f, Vis.colBuffer, buildingLayer, QueryTriggerInteraction.Ignore);
+            int num1 = hits;
+
+            for (int i = 0; i < hits; i++)
+            {
+                if (Vis.colBuffer[i].name.Contains("floor/floor.")) num1--;
+                if (Vis.colBuffer[i].name.Contains("foundation/foundation.")) num1--;
+                Vis.colBuffer[i] = null;
+            }
+
+            return num1 == 0;
         }
 
         private void CommandWipeHomes(IPlayer p, string command, string[] args)
@@ -3572,8 +3636,6 @@ namespace Oxide.Plugins
 
         private void CommandTeleportCancel(IPlayer p, string command, string[] args)
         {
-            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
-            if (!config.Settings.TPREnabled) { p.Reply("TPR is not enabled in the config."); return; }
             var player = p.Object as BasePlayer;
             if (!player) return;
             if (args.Length != 0)
@@ -4422,7 +4484,7 @@ namespace Oxide.Plugins
 
         public void Teleport(BasePlayer player, Vector3 position, bool save = True)
         {
-            if (!player.IsValid()) return;
+            if (!player.IsValid() || Vector3.Distance(position, Zero) < 5f) return;
 
             if (save) SaveLocation(player);
             if (!teleporting.ContainsKey(player.userID))
@@ -4488,63 +4550,6 @@ namespace Oxide.Plugins
         #endregion
 
         #region Checks
-        // Used by tpa only to provide for offset from the target to avoid overlap
-        private Vector3 CheckPosition(Vector3 position)
-        {
-            var hits = Physics.OverlapSphere(position, 2, blockLayer);
-            var distance = 5f;
-            BuildingBlock buildingBlock = null;
-            for (var i = 0; i < hits.Length; i++)
-            {
-                var block = hits[i].GetComponentInParent<BuildingBlock>();
-                if (block == null) continue;
-                var prefab = block.PrefabName;
-                if (!prefab.Contains("foundation", CompareOptions.OrdinalIgnoreCase) && !prefab.Contains("floor", CompareOptions.OrdinalIgnoreCase) && !prefab.Contains("pillar", CompareOptions.OrdinalIgnoreCase)) continue;
-                if (!((block.transform.position - position).magnitude < distance)) continue;
-                buildingBlock = block;
-                distance = (block.transform.position - position).magnitude;
-            }
-            if (buildingBlock == null || !config.TPR.OffsetTPRTarget) return position;
-            var blockRotation = buildingBlock.transform.rotation.eulerAngles.y;
-            var angles = new[] { 360 - blockRotation, 180 - blockRotation };
-            var location = Zero;
-            const double r = 2.9;
-            var locationDistance = 100f;
-
-#if DEBUG
-            Puts("CheckPosition: Finding suitable target position");
-            var positions = position.ToString();
-            Puts($"CheckPosition:   Old location {positions}");
-#endif
-            for (var i = 0; i < angles.Length; i++)
-            {
-                var radians = ConvertToRadians(angles[i]);
-                var newX = r * System.Math.Cos(radians);
-                var newZ = r * System.Math.Sin(radians);
-#if DEBUG
-                Puts($"CheckPosition:     Checking angle {i}");
-                var newXs = newX.ToString();
-                var newZs = newZ.ToString();
-                Puts($"CheckPosition:     newX = {newXs}, newZ = {newZs}");
-#endif
-                var newLoc = new Vector3((float)(buildingBlock.transform.position.x + newX), buildingBlock.transform.position.y + .2f, (float)(buildingBlock.transform.position.z + newZ));
-                if ((position - newLoc).magnitude < locationDistance)
-                {
-                    location = newLoc;
-                    locationDistance = (position - newLoc).magnitude;
-#if DEBUG
-                    var locs = newLoc.ToString();
-                    Puts($"CheckPosition:     possible new location at {locs}");
-#endif
-                }
-            }
-#if DEBUG
-            var locations = location.ToString();
-            Puts($"CheckPosition:   New location {locations}");
-#endif
-            return location;
-        }
-
         private string CanPlayerTeleport(BasePlayer player)
         {
             return Interface.Oxide.CallHook("CanTeleport", player) as string;
@@ -4879,9 +4884,9 @@ namespace Oxide.Plugins
                 if (building.buildingPrivileges == null)
                 {
 #if DEBUG
-                    Puts("No cupboard found, returning player.CanBuild()"); // Puts("Player has no privileges");
+                    Puts("No cupboard found, returning player.IsBuildingBlocked"); // Puts("Player has no privileges");
 #endif
-                    return player.CanBuild(); // False
+                    return player.IsBuildingBlocked(block.transform.position, new Quaternion(), block.bounds); // False
                 }
 
                 ulong hitEntityOwnerID = block.OwnerID != 0 ? block.OwnerID : 0;
