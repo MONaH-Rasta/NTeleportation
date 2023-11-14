@@ -1,8 +1,8 @@
 //#define DEBUG
+//#define TPP
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using Facepunch;
@@ -19,10 +19,28 @@ using static UnityEngine.Vector3;
 using System.Text.RegularExpressions;
 
 /*
-    1.0.89:
-    Crafting is no longer cancelled on teleport
+    1.1.1: 
+    Fixed being dragged under map after teleport while standing on a garbage pile plank!! Ty @Ryrzy for video to reproduce
+    Fixed buildings not loading immediately after teleport. Credits @ctv
+    Fixed not being able to sethome on foundation @rustkoyak
+    Smoother transition on teleport
+    Added command /TPT <player name> - teleport to a friend, clan or team member. Requires 'nteleportation.tpt' permission. Contribution & Credits @Mal.Speedie
+    Clarification that homes/town/outpost/bandit may be invalid on map wipe when `WipeOnUpgradeOrChange` is `false` in config
+    Added null check in OnPlayerSleepEnded
+    Removed position check in OnPlayerSleepEnded as its obsolete now
+
+    1.1.0:
+    Fix for players from being dragged under the map after teleporting, by forcing them to their teleport position when they wake up if water is below them.
+
+    1.0.9:
+    Fix for players teleporting under the map when teleporting to a base
+    Fix for players disconnecting with RigidBody.get_velocity() NullReferenceException
+    Player ends looting before teleport, instead of when put to sleep.
 
     1.0.88:
+    Crafting is no longer cancelled on teleport
+
+    1.0.87:
     Fixed teleport from mounted entities (cargoship, boats, etc), garbage heap barrels, etc
     Added hook OnTeleportRequested(BasePlayer player, BasePlayer target) - no return behavior
     Commands /bandit and /outpost will not be registered if disabled or CompoundTeleport is loaded @Matt
@@ -32,7 +50,7 @@ using System.Text.RegularExpressions;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.0.88")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.1.1")]
     class NTeleportation : RustPlugin
     {
         private static readonly Vector3 Up = up;
@@ -41,6 +59,7 @@ namespace Oxide.Plugins
         private const string ConfigDefaultPermVip = "nteleportation.vip";
         private const string PermHome = "nteleportation.home";
         private const string PermTpR = "nteleportation.tpr";
+        private const string PermTpT = "nteleportation.tpt";
         private const string PermDeleteHome = "nteleportation.deletehome";
         private const string PermHomeHomes = "nteleportation.homehomes";
         private const string PermImportHomes = "nteleportation.importhomes";
@@ -90,7 +109,7 @@ namespace Oxide.Plugins
         private readonly Dictionary<ulong, Timer> PendingRequests = new Dictionary<ulong, Timer>();
         private readonly Dictionary<ulong, BasePlayer> PlayersRequests = new Dictionary<ulong, BasePlayer>();
         private readonly Dictionary<int, string> ReverseBlockedItems = new Dictionary<int, string>();
-        private readonly HashSet<ulong> teleporting = new HashSet<ulong>();
+        private readonly Dictionary<ulong, Vector3> teleporting = new Dictionary<ulong, Vector3>();
         private SortedDictionary<string, Vector3> monPos  = new SortedDictionary<string, Vector3>();
         private SortedDictionary<string, Vector3> monSize = new SortedDictionary<string, Vector3>();
         private SortedDictionary<string, Vector3> cavePos  = new SortedDictionary<string, Vector3>();
@@ -635,6 +654,7 @@ namespace Oxide.Plugins
                         "Daily amount of teleports: {1}"
                     })
                 },
+                {"NotValidTPT", "Not valid, player is not a friend, on your team, or in your clan!"},
                 {"PlayerNotFound", "The specified player couldn't be found please try again!"},
                 {"MultiplePlayers", "Found multiple players: {0}"},
                 {"CantTeleportToSelf", "You can't teleport to yourself!"},
@@ -808,6 +828,14 @@ namespace Oxide.Plugins
                         "A Syntax Error Occurred!",
                         "You can only use the /home list command as follows:",
                         "/home list - Shows you a list of all your saved home locations."
+                    })
+                },
+                {
+                    "SyntaxCommandTPT", string.Join(NewLine, new[]
+                    {
+                        "A Syntax Error Occurred!",
+                        "You can only use the /tpt command as follows:",
+                        "/tpt \"player name\" - Teleports you to a team or clan member."
                     })
                 },
                 {
@@ -1402,6 +1430,7 @@ namespace Oxide.Plugins
             permission.RegisterPermission(PermTpConsole, this);
             permission.RegisterPermission(PermTpHome, this);
             permission.RegisterPermission(PermTpTown, this);
+            permission.RegisterPermission(PermTpT, this);
             permission.RegisterPermission(PermTpOutpost, this);
             permission.RegisterPermission(PermTpBandit, this);
             permission.RegisterPermission(PermTpN, this);
@@ -1501,7 +1530,7 @@ namespace Oxide.Plugins
             }
             else
             {
-                Puts("Rust was upgraded or map changed - homes may be invalid!");
+                Puts("Rust was upgraded or map changed - homes, town, outpost and bandit may be invalid!");
             }
         }
 
@@ -1563,7 +1592,7 @@ namespace Oxide.Plugins
         {
             var player = entity.ToPlayer();
             if(player == null || hitinfo == null) return;
-            if(hitinfo.damageTypes.Has(DamageType.Fall) && teleporting.Contains(player.userID))
+            if(hitinfo.damageTypes.Has(DamageType.Fall) && teleporting.ContainsKey(player.userID))
             {
                 hitinfo.damageTypes = new DamageTypeList();
                 teleporting.Remove(player.userID);
@@ -1618,9 +1647,11 @@ namespace Oxide.Plugins
 
         void OnPlayerSleepEnded(BasePlayer player)
         {
-            if(teleporting.Contains(player.userID))
+            ulong userID = player.userID;
+
+            if (teleporting.ContainsKey(userID))
             {
-                timer.Once(3, () => { teleporting.Remove(player.userID); });
+                timer.Once(3f, () => teleporting.Remove(userID));
             }
         }
 
@@ -1817,6 +1848,98 @@ namespace Oxide.Plugins
                 Config.WriteObject(configData, true);
             }
         }
+        [ChatCommand("tpt")]
+        private void cmdChatTeleportTeam(BasePlayer player, string command, string[] args)
+        {
+            if (!IsAllowedMsg(player, PermTpT))
+                return;
+
+            if (args.Length < 1 || string.IsNullOrEmpty(args[0]))
+            {
+                PrintMsgL(player, "SyntaxCommandTPT");
+                return;
+            }
+            else
+            {
+                BasePlayer target = null;
+                string PlayerClan = null;
+                string TargetClan = null;
+
+                target = FindPlayersSingle(args[0], player);
+                if (target == null)
+                    return;
+                else if (target == player)
+                {
+                    PrintMsgL(player, "CantTeleportToSelf");
+                    return;
+                }
+
+                PlayerClan = Clans?.Call<string>("GetClanOf", player);
+                TargetClan = Clans?.Call<string>("GetClanOf", target);
+
+                bool isFriends = Friends?.Call<bool>("AreFriends", player.userID, target.userID) ?? false;
+                bool notClanMates = string.IsNullOrEmpty(PlayerClan) || string.IsNullOrEmpty(TargetClan) || PlayerClan != TargetClan;
+                bool notTeamMates = player.currentTeam == 0 || target.currentTeam == 0 || player.currentTeam != target.currentTeam;
+
+                if (notClanMates && notTeamMates && !isFriends)
+                {
+                    PrintMsgL(player, "NotValidTPT");
+                    return;
+                }
+                else
+                {
+                    // call "tpr"
+                    cmdChatTeleportRequest(player, "notpa", args);
+
+                    // call "tpa"
+                    string[] x = null;
+                    cmdChatTeleportAccept(target, "notpa", x);
+                }
+            }
+        }
+
+#if TPP
+        Coroutine coroutine;
+        int timesToTeleport;
+        [ChatCommand("tpp")]
+        private void cmdChatTeleportRandom(BasePlayer player, string command, string[] args)
+        {
+            if (!player.IsAdmin)
+                return;
+            timesToTeleport = args.Length >= 1 && args[0].All(char.IsDigit) ? int.Parse(args[0]) : 0;
+            if (timesToTeleport > 50) timesToTeleport = 50;
+
+            if (timesToTeleport > 1) Puts("Teleporting {0} {1} times to random locations!", player.displayName, timesToTeleport);
+            coroutine = ServerMgr.Instance.StartCoroutine(TeleportPP(player));
+        }
+
+        List<BaseEntity> _entities;
+        IEnumerator TeleportPP(BasePlayer player)
+        {
+            int num = 0;
+            for (; num < timesToTeleport; num++)
+            {
+                if (!player || !player.IsConnected || player.IsDead() || player.IsFlying)
+                {
+                    if (coroutine != null) ServerMgr.Instance.StopCoroutine(coroutine);
+                    coroutine = null;
+                    break;
+                }
+
+                if (_entities == null || _entities.Count == 0)
+                    _entities = BaseNetworkable.serverEntities.Where(e => e is StorageContainer).Cast<BaseEntity>().ToList();
+
+                BaseEntity entity = _entities.GetRandom();
+                Teleport(player, entity.transform.position);
+                player.ChatMessage(string.Format("{0} {1}", entity.ShortPrefabName, entity.transform.position));
+                player.metabolism.radiation_level.value = 0;
+
+                yield return UnityEngine.CoroutineEx.waitForSecondsRealtime(3f);
+            }
+
+            Puts("Teleported {0} to {1} random locations!", player.displayName, num);
+        }
+#endif
 
         [ChatCommand("tp")]
         private void cmdChatTeleport(BasePlayer player, string command, string[] args)
@@ -1838,8 +1961,6 @@ namespace Oxide.Plugins
                         return;
 #endif
                     }
-//                    if(player.isMounted)
-//                        player.DismountObject();
                     TeleportToPlayer(player, target);
                     PrintMsgL(player, "AdminTP", target.displayName);
                     Puts(_("LogTeleport", null, player.displayName, target.displayName));
@@ -2834,13 +2955,13 @@ namespace Oxide.Plugins
         private void cmdChatTeleportAccept(BasePlayer player, string command, string[] args)
         {
             if (!configData.Settings.TPREnabled) return;
-            if (args.Length != 0)
+            if (args.Length != 0 && command != "notpa")
             {
                 PrintMsgL(player, "SyntaxCommandTPA");
                 return;
             }
             Timer reqTimer;
-            if (!PendingRequests.TryGetValue(player.userID, out reqTimer))
+            if (!PendingRequests.TryGetValue(player.userID, out reqTimer) && command != "notpa")
             {
                 PrintMsgL(player, "NoPendingRequest");
                 return;
@@ -3887,34 +4008,54 @@ namespace Oxide.Plugins
         public void Teleport(BasePlayer player, Vector3 position)
         {
             SaveLocation(player);
-            teleporting.Add(player.userID);
+            if (!teleporting.ContainsKey(player.userID))
+                teleporting.Add(player.userID, position);
+            else teleporting[player.userID] = position;
 
-            try
+            try // IPlayer.Teleport
             {
-                player.EnsureDismounted();
-                player.SetParent(null, true, true);
                 if (player.IsConnected)
                 {
+                    player.EndLooting();
                     StartSleeping(player);
-                    player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, true);
                 }
-                player.UpdatePlayerCollider(true);
-                player.UpdatePlayerRigidbody(false);
-                player.EnableServerFall(true);
-                player.MovePosition(position);
-                player.ClientRPCPlayer(null, player, "ForcePositionTo", position);
-                if (player.IsConnected && !player.net.sv.visibility.IsInside(player.net.group, position))
+
+                if (player.HasParent())
                 {
-                    player.UpdateNetworkGroup();
-                    player.SendNetworkUpdateImmediate(false);
-                    player.ClearEntityQueue(null);
-                    player.SendFullSnapshot();
+                    player.SetParent(null, true, true);
+                }
+
+                player.EnsureDismounted();
+                player.EnableServerFall(true); // redundant, in OnEntityTakeDamage hook
+                player.MovePosition(position);
+
+                if (player.IsConnected && !Network.Net.sv.visibility.IsInside(player.net.group, position))
+                {
+                    player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, true);
+                    player.ClientRPCPlayer(null, player, "StartLoading");
+                    player.ClientRPCPlayer(null, player, "ForcePositionTo", position);
+                    player.UpdateNetworkGroup(); // 1.1.1 fix @ctv
+                    player.SendEntityUpdate(); // 1.1.1 fix @ctv
+                    player.SendNetworkUpdateImmediate(false); // 1.1.1 fix @ctv
+                }
+
+                if (player.triggers != null) // elegant solution to prevent players from being dragged under the map after teleport, fix 1.1.1. reproduce: https://www.youtube.com/watch?v=F9WL_UYlY84, source: Ryrzy
+                {
+                    foreach (var triggerBase in player.triggers.ToArray())
+                    {
+                        if ((bool)triggerBase && triggerBase.interestLayers.value == 68289024) // remove layer that causes the bug
+                        {
+                            triggerBase.RemoveEntity(player);
+                        }
+                    }
+                    if (player.triggers != null && player.triggers.Count == 0)
+                    {
+                        Pool.FreeList(ref player.triggers);
+                    }
                 }
             }
             finally
             {
-                player.UpdatePlayerCollider(true);
-                player.UpdatePlayerRigidbody(true);
                 player.EnableServerFall(false);
             }
         }
@@ -3931,7 +4072,6 @@ namespace Oxide.Plugins
             player.sleepStartTime = Time.time;
             player.CancelInvoke("InventoryUpdate");
             player.CancelInvoke("TeamUpdate");
-            player.inventory.loot.Clear();
         }
         #endregion
 
@@ -4576,7 +4716,7 @@ namespace Oxide.Plugins
             RaycastHit hitinfo;
             var entities = new List<BuildingBlock>();
 
-            if(Physics.Raycast(position, Vector3.down, out hitinfo, 0.1f, blockLayer))
+            if(Physics.Raycast(position, Vector3.down, out hitinfo, 0.2f, blockLayer))
             {
                 var entity = hitinfo.GetEntity();
                 if(entity.PrefabName.Contains("foundation") || position.y < entity.WorldSpaceBounds().ToBounds().max.y)
@@ -5221,7 +5361,7 @@ namespace Oxide.Plugins
         [HookMethod("SendHelpText")]
         private void SendHelpText(BasePlayer player)
         {
-            PrintMsgL(player, "<size=14>NTeleportation</size>\n<color=#ffd479>/sethome NAME</color> - Set home on current foundation\n<color=#ffd479>/home NAME</color> - Go to one of your homes\n<color=#ffd479>/home list</color> - List your homes\n<color=#ffd479>/town</color> - Go to town, if set\n/tpb - Go back to previous location\n/tpr PLAYER - Request teleport to PLAYER\n/tpa - Accept teleport request");
+            PrintMsgL(player, "<size=14>NTeleportation</size> by <color=#ce422b>Nogrod</color>\n<color=#ffd479>/sethome NAME</color> - Set home on current foundation\n<color=#ffd479>/home NAME</color> - Go to one of your homes\n<color=#ffd479>/home list</color> - List your homes\n<color=#ffd479>/town</color> - Go to town, if set\n/tpb - Go back to previous location\n/tpr PLAYER - Request teleport to PLAYER\n/tpa - Accept teleport request");
         }
     }
 }
