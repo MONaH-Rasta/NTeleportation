@@ -19,6 +19,13 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
+    1.2.8:
+    Fix for CommandTeleportNear.IndexOutOfRangeException
+    Rewrote auto generation for bandit and outpost locations
+    Added messages to show the reason why bandit or outpost command is disabled
+    Possible fix for config resetting
+    Added message to server console when default config is loaded
+
     1.2.7:
     Removed teleport protection
     Removed conversion from old to new config
@@ -149,7 +156,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.7")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.8")]
     class NTeleportation : RustPlugin
     {
         private string banditPrefab;
@@ -222,7 +229,9 @@ namespace Oxide.Plugins
         private SortedDictionary<string, Vector3> caves = new SortedDictionary<string, Vector3>();
         private SortedDictionary<string, MonInfo> monuments = new SortedDictionary<string, MonInfo>();
         private bool outpostEnabled;
+        private string OutpostTPDisabledMessage = "OutpostTPDisabled";
         private bool banditEnabled;
+        private string BanditTPDisabledMessage = "BanditTPDisabled";
 
         [PluginReference]
         private Plugin Clans, Economics, ServerRewards, Friends, CompoundTeleport, ZoneManager, NoEscape, Vanish;
@@ -577,13 +586,6 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Bandit")]
             public TownSettings Bandit = new TownSettings();
-
-            [JsonProperty(PropertyName = "Version")]
-            public VersionNumber Version = new VersionNumber(1, 2, 3);
-
-            //public string ToJson() => JsonConvert.SerializeObject(this);
-
-            //public Dictionary<string, object> ToDictionary() => JsonConvert.DeserializeObject<Dictionary<string, object>>(ToJson());
         }
 
         protected override void LoadConfig()
@@ -592,7 +594,6 @@ namespace Oxide.Plugins
 
             try
             {
-                Config.Settings.ReferenceLoopHandling = ReferenceLoopHandling.Ignore;
                 Config.Settings.Converters = new JsonConverter[] { new UnityVector3Converter() };
                 config = Config.ReadObject<Configuration>();
                 if (config == null) throw new Exception();
@@ -603,13 +604,16 @@ namespace Oxide.Plugins
                 LoadDefaultConfig();
             }
 
-            config.Version = Version;
             SaveConfig();
         }
 
         protected override void SaveConfig() => Config.WriteObject(config);
 
-        protected override void LoadDefaultConfig() => config = new Configuration();
+        protected override void LoadDefaultConfig()
+        {
+            config = new Configuration();
+            Puts("Loaded default configuration.");
+        }
 
         #endregion
 
@@ -793,6 +797,9 @@ namespace Oxide.Plugins
                 {"OutpostTP", "You teleported to the outpost!"},
                 {"OutpostTPNotSet", "Outpost is currently not set!"},
                 {"OutpostTPDisabled", "Outpost is currently not enabled!"},
+                {"OutpostTPDisabledConfig", "Bandit is currently not enabled because it isn't enabled in the config"},
+                {"OutpostTPDisabledNoLocation", "Bandit is currently not enabled, location is not set and auto generation is disabled!"},
+                {"OutpostTPDisabledNoLocationAutoGen", "Bandit is currently not enabled because auto generation failed!"},
                 {"OutpostTPLocation", "You have set the outpost location to {0}!"},
                 {"OutpostTPStarted", "Teleporting to the outpost in {0} seconds!"},
                 {"OutpostTPCooldown", "Your teleport is currently on cooldown. You'll have to wait {0} for your next teleport."},
@@ -806,6 +813,9 @@ namespace Oxide.Plugins
                 {"BanditTP", "You teleported to bandit town!"},
                 {"BanditTPNotSet", "Bandit is currently not set!"},
                 {"BanditTPDisabled", "Bandit is currently not enabled!"},
+                {"BanditTPDisabledConfig", "Bandit is currently not enabled because it isn't enabled in the config!"},
+                {"BanditTPDisabledNoLocation", "Bandit is currently not enabled, location is not set and auto generation is disabled!"},
+                {"BanditTPDisabledNoLocationAutoGen", "Bandit is currently not enabled because auto generation failed!"},
                 {"BanditTPLocation", "You have set the bandit town location to {0}!"},
                 {"BanditTPStarted", "Teleporting to bandit town in {0} seconds!"},
                 {"BanditTPCooldown", "Your teleport is currently on cooldown. You'll have to wait {0} for your next teleport."},
@@ -1664,15 +1674,11 @@ namespace Oxide.Plugins
                 ReverseBlockedItems[definition.itemid] = item.Value;
             }
 
-            timer.Once(2f, () =>
+            if (CompoundTeleport == null)
             {
-                if (CompoundTeleport == null)
-                {
-                    if (config.Settings.OutpostEnabled) AddCovalenceCommand("outpost", nameof(CommandOutpost));
-                    if (config.Settings.BanditEnabled) AddCovalenceCommand("bandit", nameof(CommandBandit));
-                }
-            });
-
+                if (outpostEnabled) AddCovalenceCommand("outpost", nameof(CommandOutpost));
+                if (banditEnabled) AddCovalenceCommand("bandit", nameof(CommandBandit));
+            }
             if (config.Settings.TownEnabled) AddCovalenceCommand("town", nameof(CommandTown));
             if (config.Settings.TPREnabled) AddCovalenceCommand("tpr", nameof(CommandTeleportRequest));
             if (config.Settings.HomesEnabled)
@@ -1991,23 +1997,27 @@ namespace Oxide.Plugins
                         {
                             if (entity.prefabID == 3858860623)
                             {
-                                config.Outpost.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.back;
+                                config.Outpost.Location = entity.transform.position + entity.transform.forward + new Vector3(0f, 1f, 0f);
+                                SaveConfig();
                                 break;
                             }
                             else if (entity is Workbench)
                             {
-                                config.Outpost.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.forward;
+                                config.Outpost.Location = entity.transform.position + entity.transform.forward + new Vector3(0f, 1f, 0f);
+                                SaveConfig();
                                 break;
                             }
                             else if (entity is BaseChair)
                             {
-                                config.Outpost.Location = entity.transform.position + new Vector3(0f, 1f, 0f);
+                                config.Outpost.Location = entity.transform.position + entity.transform.right + new Vector3(0f, 1f, 0f);
+                                SaveConfig();
                                 break;
                             }
                         }
-                        if (config.Outpost.Location == Zero) outpostEnabled = False;
+
+                        if (!config.Settings.OutpostEnabled) OutpostTPDisabledMessage = "OutpostTPDisabledConfig";
+                        else if (config.Outpost.Location == Zero) OutpostTPDisabledMessage = "OutpostTPDisabledNoLocationAutoGen";
                     }
-                    if (Vector3.Distance(monument.transform.position, config.Outpost.Location) > 50) outpostEnabled = False;
                 }
                 else if (monument.name == banditPrefab)
                 {
@@ -2022,23 +2032,27 @@ namespace Oxide.Plugins
                         {
                             if (entity.prefabID == 3858860623)
                             {
-                                config.Bandit.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.back;
+                                config.Bandit.Location = entity.transform.position + entity.transform.forward + new Vector3(0f, 1f, 0f);
+                                SaveConfig();
                                 break;
                             }
                             else if (entity is Workbench)
                             {
-                                config.Bandit.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.forward;
+                                config.Bandit.Location = entity.transform.position + entity.transform.forward + new Vector3(0f, 1f, 0f);
+                                SaveConfig();
                                 break;
                             }
                             else if (entity is BaseChair)
                             {
-                                config.Bandit.Location = entity.transform.position + new Vector3(0f, 1f, 0f);
+                                config.Bandit.Location = entity.transform.position + entity.transform.right + new Vector3(0f, 1f, 0f);
+                                SaveConfig();
                                 break;
                             }
                         }
-                        if (config.Bandit.Location == Zero) banditEnabled = False;
                     }
-                    if (Vector3.Distance(monument.transform.position, config.Bandit.Location) > 50) banditEnabled = False;
+
+                    if (!config.Settings.BanditEnabled) BanditTPDisabledMessage = "BanditTPDisabledConfig";
+                    else if (config.Bandit.Location == Zero) BanditTPDisabledMessage = "BanditTPDisabledNoLocationAutoGen";
                 }
                 else
                 {
@@ -2052,10 +2066,16 @@ namespace Oxide.Plugins
                 }
             }
 
-            if (config.Bandit.Location != Zero || config.Outpost.Location != Zero)
+            if (config.Outpost.Location == Zero)
             {
-                // Write config so that the outpost and bandit autogen locations are available immediately.
-                SaveConfig();
+                if (!config.Settings.AutoGenOutpost) OutpostTPDisabledMessage = "OutpostTPDisabledNoLocation";
+                outpostEnabled = False;
+            }
+
+            if (config.Bandit.Location == Zero)
+            {
+                if (!config.Settings.AutoGenBandit) BanditTPDisabledMessage = "BanditTPDisabledNoLocation";
+                banditEnabled = False;
             }
         }
 
@@ -2201,8 +2221,8 @@ namespace Oxide.Plugins
                         return;
 #endif
                     }
-                    int distance;
-                    if (!int.TryParse(args[1], out distance))
+                    int distance = config.Admin.TeleportNearDefaultDistance;
+                    if (args.Length == 2 && !int.TryParse(args[1], out distance))
                         distance = config.Admin.TeleportNearDefaultDistance;
                     float x = UnityEngine.Random.Range(-distance, distance);
                     var z = (float)System.Math.Sqrt(System.Math.Pow(distance, 2) - System.Math.Pow(x, 2));
@@ -3637,12 +3657,12 @@ namespace Oxide.Plugins
             // Is outpost/bandit/town usage enabled?
             if (!outpostEnabled && command == "outpost")
             {
-                PrintMsgL(player, "OutpostTPDisabled");
+                PrintMsgL(player, OutpostTPDisabledMessage);
                 return;
             }
             else if (!banditEnabled && command == "bandit")
             {
-                PrintMsgL(player, "BanditTPDisabled");
+                PrintMsgL(player, BanditTPDisabledMessage);
                 return;
             }
             else if (!config.Settings.TownEnabled && command == "town")
