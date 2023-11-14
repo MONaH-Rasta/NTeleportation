@@ -16,8 +16,18 @@ using Rust;
 using UnityEngine;
 using System.Reflection;
 using Oxide.Core.Libraries.Covalence;
+using Network;
 
 /*
+    1.2.4:
+    Fixed Interrupt TP On Oil Rig
+    Fixed hostility timer to use the state of hostility time
+    Fixed autogen positions for Bandit and Outpost
+    Added protection to prevent teleporting players under the world - this was avoidable by using wipe on upgrade or change
+    Bandit and Outpost locations will now auto generate when 1) the location is not set, or 2) wipe on upgrade or change is enabled
+    Changed CheckCupboardBlock to allow teleport if the player can build when no cupboard is found
+    Invisible players no longer send a network update after teleporting
+
     1.2.3:
     Reworked how config is created
     Fixed battery exploit
@@ -125,7 +135,7 @@ using Oxide.Core.Libraries.Covalence;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.3")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.4")]
     class NTeleportation : RustPlugin
     {
         private string banditPrefab;
@@ -197,9 +207,11 @@ namespace Oxide.Plugins
         private readonly Dictionary<ulong, Vector3> teleporting = new Dictionary<ulong, Vector3>();
         private SortedDictionary<string, Vector3> caves = new SortedDictionary<string, Vector3>();
         private SortedDictionary<string, MonInfo> monuments = new SortedDictionary<string, MonInfo>();
+        private bool outpostEnabled;
+        private bool banditEnabled;
 
         [PluginReference]
-        private Plugin Clans, Economics, ServerRewards, Friends, CompoundTeleport, ZoneManager, NoEscape;
+        private Plugin Clans, Economics, ServerRewards, Friends, CompoundTeleport, ZoneManager, NoEscape, Vanish;
 
         class MonInfo
         {
@@ -1683,7 +1695,9 @@ namespace Oxide.Plugins
         void OnServerInitialized()
         {
             banditPrefab = StringPool.Get(2074025910);
+            banditEnabled = config.Settings.BanditEnabled;
             outpostPrefab = StringPool.Get(1879405026);
+            outpostEnabled = config.Settings.OutpostEnabled;
 
             Subscribe(nameof(OnPlayerSleepEnded));
             Subscribe(nameof(OnPlayerDisconnected));
@@ -1748,7 +1762,6 @@ namespace Oxide.Plugins
             AddCovalenceCommand("teleport.importhomes", nameof(CommandImportHomes));
             AddCovalenceCommand("town", nameof(CommandTown));
             AddCovalenceCommand("spm", nameof(CommandSphereMonuments));
-
             FindMonuments();  // 1.2.2 location moved from Loaded() to fix outpost and bandit location not being set after a wipe
         }
 
@@ -1997,7 +2010,6 @@ namespace Oxide.Plugins
             return _sb.ToString();
         }
 
-        bool setextra = False;
         void FindMonuments()
         {
             var realWidth = 0f;
@@ -2016,7 +2028,6 @@ namespace Oxide.Plugins
                     Puts($"  corrected to {realWidth}");
 #endif
                 }
-                //Puts("{0} {1} {2}", monument.Type == MonumentType.Town, monument.Tier, monument.GetComponentInChildren<TriggerBanditZone>() != null);
                 if (monument.name.Contains("cave"))
                 {
 #if DEBUG
@@ -2025,7 +2036,7 @@ namespace Oxide.Plugins
                     if (caves.ContainsKey(name)) name += RandomString();
                     caves.Add(name, monPos);
                 }
-                else if (monument.name == outpostPrefab && config.Settings.AutoGenOutpost)
+                else if (monument.name == outpostPrefab && config.Settings.AutoGenOutpost && config.Outpost.Location == Zero)
                 {
 #if DEBUG
                     Puts("  Adding Outpost target");
@@ -2034,38 +2045,50 @@ namespace Oxide.Plugins
                     Vis.Entities<BaseEntity>(monPos, 50, ents);
                     foreach (BaseEntity entity in ents)
                     {
-                        if (entity.name.Contains("workbench") || entity.name.Contains("chair") || entity.name.Contains("piano"))
+                        if (entity is StaticInstrument)
                         {
-                            config.Outpost.Location = entity.transform.position +
-                                (entity.name.Contains("chair") ? new Vector3(0f, 1f, 0f) :
-                                entity.name.Contains("piano") ? new Vector3(-1f, 1f, -1f) :
-                                new Vector3(-1f, 0f, 1f));
-                            setextra = True;
+                            config.Outpost.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.back;
+                            break;
+                        }
+                        else if (entity is Workbench)
+                        {
+                            config.Outpost.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.forward;
+                            break;
+                        }
+                        else if (entity is BaseChair)
+                        {
+                            config.Outpost.Location = entity.transform.position + new Vector3(0f, 1f, 0f);
                             break;
                         }
                     }
-                    if (!setextra) config.Settings.OutpostEnabled = False;                    
+                    if (config.Outpost.Location == Zero) outpostEnabled = False;
                 }
-                else if (monument.name == banditPrefab && config.Settings.AutoGenBandit)
+                else if (monument.name == banditPrefab && config.Settings.AutoGenBandit && config.Bandit.Location == Zero)
                 {
 #if DEBUG
                     Puts("  Adding BanditTown target");
 #endif
-                    //TerrainMeta.Path.Monuments.Add(monument);
                     var ents = new List<BaseEntity>();
                     Vis.Entities<BaseEntity>(monPos, 50, ents);
                     foreach (BaseEntity entity in ents)
                     {
-                        if (entity.name.Contains("workbench") || entity.name.Contains("chair") || entity.name.Contains("piano")) // no piano there yet?
+                        if (entity is StaticInstrument)
                         {
-                            config.Bandit.Location = entity.transform.position +
-                                (entity.name.Contains("chair") ? new Vector3(0f, 1f, 0f) :
-                                entity.name.Contains("piano") ? new Vector3(-1f, 1f, -1f) :
-                                new Vector3(-1f, 0f, 1f));
-                            setextra = True;
+                            config.Bandit.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.back;
+                            break;
+                        }
+                        else if (entity is Workbench)
+                        {
+                            config.Bandit.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.forward;
+                            break;
+                        }
+                        else if (entity is BaseChair)
+                        {
+                            config.Bandit.Location = entity.transform.position + new Vector3(0f, 1f, 0f);
+                            break;
                         }
                     }
-                    if (!setextra) config.Settings.BanditEnabled = False;
+                    if (config.Bandit.Location == Zero) banditEnabled = False;
                 }
                 else
                 {
@@ -2079,7 +2102,7 @@ namespace Oxide.Plugins
                 }
             }
 
-            if (setextra)
+            if (config.Bandit.Location != Zero || config.Outpost.Location != Zero)
             {
                 // Write config so that the outpost and bandit autogen locations are available immediately.
                 SaveConfig();
@@ -2273,6 +2296,11 @@ namespace Oxide.Plugins
                         PrintMsgL(player, "LocationNotFound");
                         return;
                     }
+                    if (!player.IsAdmin && !isValidLoc(loc))
+                    {
+                        player.ChatMessage("Location is under the world! Aborting...");
+                        return;
+                    }
                     Teleport(player, loc);
                     PrintMsgL(player, "AdminTPLocation", args[0]);
                     break;
@@ -2280,6 +2308,18 @@ namespace Oxide.Plugins
                     PrintMsgL(player, "SyntaxCommandTPL");
                     break;
             }
+        }
+
+        bool isValidLoc(Vector3 target)
+        {
+            float y = TerrainMeta.HeightMap.GetHeight(target) - 1f;
+
+            if (target.y < y)
+            {
+                return False;
+            }
+
+            return True;
         }
 
         private void CommandSaveTeleportLocation(IPlayer p, string command, string[] args)
@@ -2354,6 +2394,12 @@ namespace Oxide.Plugins
             if (!Admin.TryGetValue(player.userID, out adminData) || adminData.PreviousLocation == Zero)
             {
                 PrintMsgL(player, "NoPreviousLocationSaved");
+                return;
+            }
+
+            if (!player.IsAdmin && !isValidLoc(adminData.PreviousLocation))
+            {
+                player.ChatMessage("Location is under the world! Aborting...");
                 return;
             }
 
@@ -2597,6 +2643,12 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "HomeNotFound");
                 return;
             }
+            if (!player.IsAdmin && !isValidLoc(location))
+            {
+                player.ChatMessage("This home is under the world! Aborting...");
+                return;
+            }
+
             Teleport(player, location);
             PrintMsgL(player, "HomeAdminTP", args[0], args[1]);
         }
@@ -2867,6 +2919,12 @@ namespace Oxide.Plugins
                         }
                         return;
                     }
+                    if (!player.IsAdmin && !isValidLoc(location))
+                    {
+                        player.ChatMessage("This home is under the world! Aborting...");
+                        return;
+                    }
+
                     if (UseEconomy())
                     {
                         if (config.Home.Pay > 0 && !CheckEconomy(player, config.Home.Pay))
@@ -2883,6 +2941,7 @@ namespace Oxide.Plugins
                             PrintMsgL(player, "TPMoney", (double)config.Home.Pay);
                         }
                     }
+                    
                     Teleport(player, location);
                     homeData.Teleports.Amount++;
                     homeData.Teleports.Timestamp = timestamp;
@@ -3532,9 +3591,9 @@ namespace Oxide.Plugins
                     msg += NewLine + "/tpinfo TPR";
                 if (config.Settings.TownEnabled)
                     msg += NewLine + "/tpinfo Town";
-                if (config.Settings.OutpostEnabled)
+                if (outpostEnabled)
                     msg += NewLine + "/tpinfo Outpost";
-                if (config.Settings.BanditEnabled)
+                if (banditEnabled)
                     msg += NewLine + "/tpinfo Bandit";
                 PrintMsgL(player, msg);
             }
@@ -3655,12 +3714,12 @@ namespace Oxide.Plugins
             bool paidmoney = False;
 
             // Is outpost/bandit/town usage enabled?
-            if (!config.Settings.OutpostEnabled && command == "outpost")
+            if (!outpostEnabled && command == "outpost")
             {
                 PrintMsgL(player, "OutpostTPDisabled");
                 return;
             }
-            else if (!config.Settings.BanditEnabled && command == "bandit")
+            else if (!banditEnabled && command == "bandit")
             {
                 PrintMsgL(player, "BanditTPDisabled");
                 return;
@@ -3727,8 +3786,8 @@ namespace Oxide.Plugins
                         PrintMsgL(player, err);
                         if (err == "TPHostile")
                         {
-                            string pt = ((int)Math.Abs(player.unHostileTime - Time.realtimeSinceStartup) / 60).ToString();
-                            PrintMsgL(player, "HostileTimer", pt);
+                            double stateHostileTime = Math.Round((player.State.unHostileTimestamp - TimeEx.currentTimestamp) / 60, 0, MidpointRounding.AwayFromZero);
+                            PrintMsgL(player, "HostileTimer", stateHostileTime);
                         }
                         return;
                     }
@@ -3762,9 +3821,8 @@ namespace Oxide.Plugins
                         PrintMsgL(player, err);
                         if (err == "TPHostile")
                         {
-                            var pc = player as BaseCombatEntity;
-                            string pt = ((int)Math.Abs(pc.unHostileTime - Time.realtimeSinceStartup) / 60).ToString();
-                            PrintMsgL(player, "HostileTimer", pt);
+                            double stateHostileTime = Math.Round((player.State.unHostileTimestamp - TimeEx.currentTimestamp) / 60, 0, MidpointRounding.AwayFromZero);
+                            PrintMsgL(player, "HostileTimer", stateHostileTime);
                         }
                         return;
                     }
@@ -3950,6 +4008,12 @@ namespace Oxide.Plugins
                                 TeleportTimers.Remove(player.userID);
                                 return;
                             }
+                            if (!player.IsAdmin && !isValidLoc(config.Outpost.Location))
+                            {
+                                player.ChatMessage("Location is under the world! Aborting...");
+                                return;
+                            }
+
                             if (UseEconomy())
                             {
                                 if (config.Outpost.Pay > 0 && !CheckEconomy(player, config.Outpost.Pay))
@@ -4026,6 +4090,12 @@ namespace Oxide.Plugins
                                 TeleportTimers.Remove(player.userID);
                                 return;
                             }
+                            if (!player.IsAdmin && !isValidLoc(config.Bandit.Location))
+                            {
+                                player.ChatMessage("Location is under the world! Aborting...");
+                                return;
+                            }
+
                             if (UseEconomy())
                             {
                                 if (config.Bandit.Pay > 0 && !CheckEconomy(player, config.Bandit.Pay))
@@ -4103,6 +4173,12 @@ namespace Oxide.Plugins
                                 TeleportTimers.Remove(player.userID);
                                 return;
                             }
+                            if (!player.IsAdmin && !isValidLoc(config.Town.Location))
+                            {
+                                player.ChatMessage("Location is under the world! Aborting...");
+                                return;
+                            }
+
                             if (UseEconomy())
                             {
                                 if (config.Town.Pay > 0 && !CheckEconomy(player, config.Town.Pay))
@@ -4315,9 +4391,9 @@ namespace Oxide.Plugins
             {
                 Puts("{0} : {1}", entry.Key, entry.Value);
             }*/
-            }
+                        }
 
-            private void CommandImportHomes(IPlayer p, string command, string[] args)
+                        private void CommandImportHomes(IPlayer p, string command, string[] args)
         {
             if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
@@ -4395,6 +4471,8 @@ namespace Oxide.Plugins
 
         public void Teleport(BasePlayer player, Vector3 position, bool save = True)
         {
+            if (!player.IsValid()) return;
+
             if (save) SaveLocation(player);
             if (!teleporting.ContainsKey(player.userID))
                 teleporting.Add(player.userID, position);
@@ -4423,9 +4501,12 @@ namespace Oxide.Plugins
                 {
                     player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, True);
                     player.ClientRPCPlayer(null, player, "StartLoading");
-                    player.UpdateNetworkGroup(); // 1.1.1 building fix @ctv
                     player.SendEntityUpdate();
-                    player.SendNetworkUpdateImmediate(False);
+                    if (!IsInvisible(player)) // fix for becoming networked briefly with vanish while teleporting
+                    {
+                        player.UpdateNetworkGroup(); // 1.1.1 building fix @ctv
+                        player.SendNetworkUpdateImmediate(False);
+                    }
                 }
             }
             finally
@@ -4433,6 +4514,11 @@ namespace Oxide.Plugins
                 player.EnableServerFall(False);
                 player.ForceUpdateTriggers(); // 1.1.4 exploit fix for looting sleepers in safe zones
             }
+        }
+
+        bool IsInvisible(BasePlayer player)
+        {
+            return Vanish != null && Vanish.Call<bool>("IsInvisible", player);
         }
 
         public void StartSleeping(BasePlayer player) // custom as to not cancel crafting, or remove player from vanish
@@ -4643,7 +4729,7 @@ namespace Oxide.Plugins
             }
             if (config.Settings.Interrupt.Oilrig)
             {
-                if (monname != null && monname.Contains("Oilrig"))
+                if (monname != null && monname.Contains("Oil Rig"))
                 {
                     return _("TooCloseToMon", player, monname);
                 }
@@ -4713,7 +4799,7 @@ namespace Oxide.Plugins
             if (player.IsSwimming() && config.Settings.Interrupt.Swimming)
                 return "TPSwimming";
             // This will have to do until we have a proper parent name for this
-            if (monname != null && monname.Contains("Oilrig") && config.Settings.Interrupt.Oilrig)
+            if (monname != null && monname.Contains("Oil Rig") && config.Settings.Interrupt.Oilrig)
                 return "TPOilRig";
             if (monname != null && monname.Contains("Excavator") && config.Settings.Interrupt.Excavator)
                 return "TPExcavator";
@@ -4850,9 +4936,9 @@ namespace Oxide.Plugins
                 if (building.buildingPrivileges == null)
                 {
 #if DEBUG
-                    Puts("Player has no privileges");
+                    Puts("No cupboard found, returning player.CanBuild()"); // Puts("Player has no privileges");
 #endif
-                    return False;
+                    return player.CanBuild(); // False
                 }
 
                 ulong hitEntityOwnerID = block.OwnerID != 0 ? block.OwnerID : 0;
@@ -5260,11 +5346,11 @@ namespace Oxide.Plugins
             RaycastHit hitinfo;
             if (Physics.Raycast(sourcePos, Down, out hitinfo, buildingLayer))
             {
-                sourcePos.y = System.Math.Max(hitinfo.point.y, sourcePos.y);
+                sourcePos.y = Mathf.Max(hitinfo.point.y, sourcePos.y);
                 return sourcePos;
             }
             if (Physics.Raycast(sourcePos, Up, out hitinfo, buildingLayer))
-                sourcePos.y = System.Math.Max(hitinfo.point.y, sourcePos.y);
+                sourcePos.y = Mathf.Max(hitinfo.point.y, sourcePos.y);
             return sourcePos;
         }
 
