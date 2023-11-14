@@ -19,6 +19,11 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
+    1.2.6:
+    Bandit command will be disabled if the coordinates are invalid
+    Outpost command will be disabled if the coordinates are invalid
+    Removed teleport protection to and from caves
+
     1.2.5:
     Added messages for when a command is not enabled in the config
 
@@ -138,7 +143,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.5")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.6")]
     class NTeleportation : RustPlugin
     {
         private string banditPrefab;
@@ -2039,59 +2044,67 @@ namespace Oxide.Plugins
                     if (caves.ContainsKey(name)) name += RandomString();
                     caves.Add(name, monPos);
                 }
-                else if (monument.name == outpostPrefab && config.Settings.AutoGenOutpost && config.Outpost.Location == Zero)
+                else if (monument.name == outpostPrefab)
                 {
-#if DEBUG
-                    Puts("  Adding Outpost target");
-#endif
-                    var ents = new List<BaseEntity>();
-                    Vis.Entities<BaseEntity>(monPos, 50, ents);
-                    foreach (BaseEntity entity in ents)
+                    if (config.Settings.AutoGenOutpost && config.Outpost.Location == Zero)
                     {
-                        if (entity is StaticInstrument)
+#if DEBUG
+                        Puts("  Adding Outpost target");
+#endif
+                        var ents = new List<BaseEntity>();
+                        Vis.Entities<BaseEntity>(monPos, 50, ents);
+                        foreach (BaseEntity entity in ents)
                         {
-                            config.Outpost.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.back;
-                            break;
+                            if (entity.prefabID == 3858860623)
+                            {
+                                config.Outpost.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.back;
+                                break;
+                            }
+                            else if (entity is Workbench)
+                            {
+                                config.Outpost.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.forward;
+                                break;
+                            }
+                            else if (entity is BaseChair)
+                            {
+                                config.Outpost.Location = entity.transform.position + new Vector3(0f, 1f, 0f);
+                                break;
+                            }
                         }
-                        else if (entity is Workbench)
-                        {
-                            config.Outpost.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.forward;
-                            break;
-                        }
-                        else if (entity is BaseChair)
-                        {
-                            config.Outpost.Location = entity.transform.position + new Vector3(0f, 1f, 0f);
-                            break;
-                        }
+                        if (config.Outpost.Location == Zero) outpostEnabled = False;
                     }
-                    if (config.Outpost.Location == Zero) outpostEnabled = False;
+                    if (Vector3.Distance(monument.transform.position, config.Outpost.Location) > 50) outpostEnabled = False;
                 }
-                else if (monument.name == banditPrefab && config.Settings.AutoGenBandit && config.Bandit.Location == Zero)
+                else if (monument.name == banditPrefab)
                 {
-#if DEBUG
-                    Puts("  Adding BanditTown target");
-#endif
-                    var ents = new List<BaseEntity>();
-                    Vis.Entities<BaseEntity>(monPos, 50, ents);
-                    foreach (BaseEntity entity in ents)
+                    if (config.Settings.AutoGenBandit && config.Bandit.Location == Zero)
                     {
-                        if (entity is StaticInstrument)
+#if DEBUG
+                        Puts("  Adding BanditTown target");
+#endif
+                        var ents = new List<BaseEntity>();
+                        Vis.Entities<BaseEntity>(monPos, 50, ents);
+                        foreach (BaseEntity entity in ents)
                         {
-                            config.Bandit.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.back;
-                            break;
+                            if (entity.prefabID == 3858860623)
+                            {
+                                config.Bandit.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.back;
+                                break;
+                            }
+                            else if (entity is Workbench)
+                            {
+                                config.Bandit.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.forward;
+                                break;
+                            }
+                            else if (entity is BaseChair)
+                            {
+                                config.Bandit.Location = entity.transform.position + new Vector3(0f, 1f, 0f);
+                                break;
+                            }
                         }
-                        else if (entity is Workbench)
-                        {
-                            config.Bandit.Location = entity.transform.position + Quaternion.Euler(entity.transform.rotation.eulerAngles) * Vector3.forward;
-                            break;
-                        }
-                        else if (entity is BaseChair)
-                        {
-                            config.Bandit.Location = entity.transform.position + new Vector3(0f, 1f, 0f);
-                            break;
-                        }
+                        if (config.Bandit.Location == Zero) banditEnabled = False;
                     }
-                    if (config.Bandit.Location == Zero) banditEnabled = False;
+                    if (Vector3.Distance(monument.transform.position, config.Bandit.Location) > 50) banditEnabled = False;
                 }
                 else
                 {
@@ -2315,7 +2328,9 @@ namespace Oxide.Plugins
 
         bool isValidLoc(Vector3 target)
         {
-            float y = TerrainMeta.HeightMap.GetHeight(target) - 1f;
+            if (IsInCave(target)) return true;
+
+            float y = TerrainMeta.HeightMap.GetHeight(target);
 
             if (target.y < y)
             {
@@ -3073,7 +3088,7 @@ namespace Oxide.Plugins
                 {
                     return;
                 }
-                else if (target == player && !player.IsAdmin)
+                else if (target == player)
                 {
                     PrintMsgL(player, "CantTeleportToSelf");
                     return;
@@ -4672,6 +4687,18 @@ namespace Oxide.Plugins
                 }
             }
             return null;
+        }
+
+        private bool IsInCave(Vector3 target)
+        {
+            foreach(var cave in caves)
+            {
+                float distance = cave.Key.Contains("Small") ? config.Settings.CaveDistanceSmall : cave.Key.Contains("Medium") ? config.Settings.CaveDistanceMedium : config.Settings.CaveDistanceLarge;
+
+                return Vector3Ex.Distance2D(target, cave.Value) < distance;
+            }
+
+            return false;
         }
 
         private string NearCave(BasePlayer player)
