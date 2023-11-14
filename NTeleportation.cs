@@ -21,23 +21,21 @@ using System.IO;
 
 // scrap payments to bypass cooldown
 // costs to buy teleport
+// dynamic payments
+// add scrap payments
 
 /*
-Fixed home limit daily reset check
-Fixed ErrorTPR showing a blank target message
-Added TPTargetInsideEntity message to language API
-Updated /radiushome to reply with any error message
-Removed bounds check in CheckFoundation
+https://umod.org/community/nteleportation/44665-other-economic-plugin
 */
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.7.0")]
+    [Info("NTeleportation", "nivex", "1.7.1")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
         [PluginReference]
-        private Plugin Clans, Economics, ServerRewards, Friends, CompoundTeleport, ZoneManager, NoEscape, Vanish, PopupNotifications;
+        private Plugin Clans, Economics, ServerRewards, Friends, CompoundTeleport, ZoneManager, NoEscape, PopupNotifications;
 
         private Dictionary<string, BasePlayer> _ids = new Dictionary<string, BasePlayer>();
         private Dictionary<BasePlayer, string> _players = new Dictionary<BasePlayer, string>();
@@ -59,6 +57,7 @@ namespace Oxide.Plugins
         private const string PermCraftTpR = "nteleportation.crafttpr";
         private const string PermTpR = "nteleportation.tpr";
         private const string PermTp = "nteleportation.tp";
+        private const string PermDisallowTpToMe = "nteleportation.disallowtptome";
         private const string PermTpT = "nteleportation.tpt";
         private const string PermTpB = "nteleportation.tpb";
         private const string PermTpN = "nteleportation.tpn";
@@ -163,10 +162,27 @@ namespace Oxide.Plugins
             public bool Swimming { get; set; } = false;
         }
 
+        private object OnPlayerRespawn(BasePlayer player)
+        {
+            if (player == null) return null;
+
+            var settings = GetSettings("outpost");
+
+            if (settings == null || settings.Location == Vector3.zero) return null;
+
+            return new BasePlayer.SpawnPoint { pos = settings.Location, rot = Quaternion.identity };
+        }
+
         public class PluginSettings
         {
+            [JsonProperty("TPB")]
+            public TPBSettings TPB = new TPBSettings();
+
             [JsonProperty(PropertyName = "Interrupt TP")]
             public InterruptSettings Interrupt { get; set; } = new InterruptSettings();
+
+            [JsonProperty(PropertyName = "Respawn Players At Outpost")]
+            public bool RespawnOutpost { get; set; }
 
             [JsonProperty(PropertyName = "Block Teleport (NoEscape)")]
             public bool BlockNoEscape { get; set; } = false;
@@ -258,29 +274,37 @@ namespace Oxide.Plugins
             [JsonProperty("Block All Teleporting From Inside Authorized Base")]
             public bool BlockAuthorizedTeleporting = false;
 
-            [JsonProperty("TPB Available After X Seconds")]
-            public float TPBTime = 0f;
-
             [JsonProperty("Global Teleport Cooldown")]
             public float Global = 0f;
 
             [JsonProperty("Global VIP Teleport Cooldown")]
             public float GlobalVIP = 0f;
 
-            [JsonProperty("Play Sounds After Teleport")]
-            public bool PlaySounds = false;
-
-            [JsonProperty("Sounds To Play After Teleport", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-            public List<string> PrefabSounds = new List<string>
+            [JsonProperty("Sound Effects Before Teleport", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public List<string> DisappearEffects = new List<string>
             {
-                "assets/prefabs/misc/xmas/presents/effects/unwrap.prefab",
-                "assets/bundled/prefabs/fx/player/howl.prefab",
-                "assets/content/vehicles/minicopter/debris_effect.prefab",
-                "assets/prefabs/npc/patrol helicopter/damage_effect_debris.prefab",
-                "assets/prefabs/npc/patrol helicopter/effects/rocket_fire.prefab"
+                "assets/prefabs/missions/portal/proceduraldungeon/effects/disappear.prefab"
+            };
+
+            [JsonProperty("Sound Effects After Teleport", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public List<string> ReappearEffects = new List<string>
+            {
+                "assets/prefabs/missions/portal/proceduraldungeon/effects/appear.prefab"
             };
         }
-        
+
+        public class TPBSettings
+        {
+            [JsonProperty(PropertyName = "VIP Countdowns", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public Dictionary<string, int> Countdowns { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 0 } };
+
+            [JsonProperty("Countdown")]
+            public int Countdown = 0;
+
+            [JsonProperty("Available After X Seconds")]
+            public int Time = 0;
+        }
+
         public class AdminSettings
         {
             [JsonProperty(PropertyName = "Announce Teleport To Target")]
@@ -384,6 +408,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Bypass")]
             public int Bypass { get; set; } = 0;
+
+            [JsonProperty(PropertyName = "Hours Before Useable After Wipe")]
+            public double Hours { get; set; } = 0;
         }
 
         public class TPTSettings
@@ -453,6 +480,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Bypass")]
             public int Bypass { get; set; } = 0;
+
+            [JsonProperty(PropertyName = "Hours Before Useable After Wipe")]
+            public double Hours { get; set; } = 0;
         }
 
         public class TownSettings
@@ -504,6 +534,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Bypass")]
             public int Bypass { get; set; } = 0;
+
+            [JsonProperty(PropertyName = "Hours Before Useable After Wipe")]
+            public double Hours { get; set; } = 0;
 
             public bool CanCraft(BasePlayer player, string command)
             {
@@ -763,9 +796,9 @@ namespace Oxide.Plugins
                 {"TPMounted", "You can't teleport while seated!"},
                 //{"TPInsideTerrainFrom", "You can't teleport while inside terrain!"},
                 //{"TPInsideTerrainTo", "You can't teleport into a location that is inside terrain!"},
-                {"TPBuildingBlocked", "You can't teleport while in a building blocked zone!"},
+                {"TPBuildingBlocked", "You can't teleport while in a building blocked area!"},
                 {"TPAboveWater", "You can't teleport while above water!"},
-                {"TPTargetBuildingBlocked", "You can't teleport in a building blocked zone!"},
+                {"TPTargetBuildingBlocked", "You can't teleport into a building blocked area!"},
                 {"TPTargetInsideBlock", "You can't teleport into a foundation!"},
                 {"TPTargetInsideEntity", "You can't teleport into another entity!"},
                 {"TPTargetInsideRock", "You can't teleport into a rock!"},
@@ -928,6 +961,7 @@ namespace Oxide.Plugins
                 {"MultiplePlayers", "Found multiple players: {0}"},
                 {"CantTeleportToSelf", "You can't teleport to yourself!"},
                 {"CantTeleportPlayerToSelf", "You can't teleport a player to himself!"},
+                {"CantTeleportPlayerToYourself", "You can't teleport a player to yourself!"},
                 {"TeleportPendingTPC", "You can't initiate another teleport while you have a teleport pending! Use /tpc to cancel this."},
                 {"TeleportPendingTarget", "You can't request a teleport to someone who's about to teleport!"},
                 {"LocationExists", "A location with this name already exists at {0}!"},
@@ -940,6 +974,7 @@ namespace Oxide.Plugins
                 {"InvalidCoordinates", "The coordinates you've entered are invalid!"},
                 {"InvalidHelpModule", "Invalid module supplied!"},
                 {"InvalidCharacter", "You have used an invalid character, please limit yourself to the letters a to z and numbers."},
+                {"NotUseable", "You must wait another {0}after the wipe to use this command." },
                 {
                     "SyntaxCommandTP", string.Join(NewLine, new[]
                     {
@@ -1636,10 +1671,497 @@ namespace Oxide.Plugins
             }
 
             lang.RegisterMessages(ru, this, "ru");
+
+            var uk = new Dictionary<string, string>
+            {
+                {"ErrorTPR", "Телепорт до {0} блоковано ({1})"},
+                {"AdminTP", "Ви телепортовані до {0}!"},
+                {"AdminTPTarget", "{0} телепортував вас!"},
+                {"AdminTPPlayers", "Ви телепортували {0} до {1}!"},
+                {"AdminTPPlayer", "{0} телепортував вас до {1}!"},
+                {"AdminTPPlayerTarget", "{0} телепортував {1} до вас!"},
+                {"AdminTPCoordinates", "Ви телепортовані до {0}!"},
+                {"AdminTPTargetCoordinates", "Ви телепортували {0} до {1}!"},
+                {"AdminTPOutOfBounds", "Ви намагалися телепортуватися до координат поза межами карти!"},
+                {"AdminTPBoundaries", "Значення X та Z повинні бути між -{0} та {0}, а значення Y між -100 та 2000!"},
+                {"AdminTPLocation", "Ви телепортовані до {0}!"},
+                {"AdminTPLocationSave", "Ви зберегли місцезнаходження!"},
+                {"AdminTPLocationRemove", "Ви видалили розташування {0}!"},
+                {"AdminLocationList", "Доступні такі розташування:"},
+                {"AdminLocationListEmpty", "Ви не зберегли жодних місць!"},
+                {"AdminTPBack", "Ви телепортовані назад, у ваше попереднє розташування!"},
+                {"AdminTPBackSave", "Ваше попереднє місце збережено, використовуйте <color=yellow>/tpb</color>, щоб телепортуватися назад!"},
+                {"AdminTPTargetCoordinatesTarget", "{0} телепортував вас до {1}!"},
+                {"AdminTPConsoleTP", "Ви були телепортовані до {0}"},
+                {"AdminTPConsoleTPPlayer", "Ви були телепортовані до {0}"},
+                {"AdminTPConsoleTPPlayerTarget", "{0} був телепортований до вас!"},
+                {"HomeTP", "Ви телепортовані до вашого будинку '{0}'!"},
+                {"HomeAdminTP", "Ви телепортовані до будинку '{1}', що належить {0}!"},
+                {"HomeSave", "Ви зберегли поточне розташування як ваш будинок!"},
+                {"HomeNoFoundation", "Використовувати місцезнаходження як будинок дозволено тільки на фундаменті!"},
+                {"HomeFoundationNotOwned", "Ви не можете використовувати команду home у чужому домі."},
+                {"HomeFoundationUnderneathFoundation", "Ви не можете використовувати команду home на фундаменті, що знаходиться під іншим фундаментом."},
+                {"HomeFoundationNotFriendsOwned", "Ви, або ваш друг, повинні бути власником будинку, щоб використати команду home!"},
+                {"HomeRemovedInvalid", "Ваш будинок '{0}' був видалений тому, що не на фундаменті або у фундаменту новий власник!"},
+                {"HighWallCollision", "Зіткнення Високих Стін!"},
+                {"HomeRemovedInsideBlock", "Ваш будинок '{0}' був видалений, тому що всередині фундаменту!"},
+                {"HomeRemove", "Ви видалили свій будинок {0}!"},
+                {"HomeDelete", "Ви видалили будинок '{1}', що належить {0}!"},
+                {"HomeList", "Доступні такі будинки:"},
+                {"HomeListEmpty", "Ви не зберегли жодного будинку!"},
+                {"HomeMaxLocations", "Неможливо встановити тут ваш будинок, ви досягли ліміту в {0} будинків!"},
+                {"HomeQuota", "Ви встановили {0} з {1} максимально можливих будинків!"},
+                {"HomeTPStarted", "Телепортація до вашого будинку {0} через {1} секунд!"},
+                {"PayToTown", "Стандартний платіж {0} поширюється на всі телепорти до міста!"},
+                {"PayToTPR", "Стандартний платіж {0} поширюється на всі tpr'и!"},
+                {"HomeTPCooldown", "Ваш телепорт перезаряджається. Вам необхідно почекати {0} до наступної телепортації."},
+                {"HomeTPCooldownBypass", "Ваш телепорт був на перезарядженні. Ви обрали уникнути очікування, сплативши {0} з вашого балансу."},
+                {"HomeTPCooldownBypassF", "Ваш телепорт перезаряджається. У вас недостатньо коштів - щоб уникнути очікування."},
+                {"HomeTPCooldownBypassP", "Ви можете вибрати оплатити {0} щоб уникнути очікування перезаряджання." },
+                {"HomeTPCooldownBypassP2", "Введіть <color=yellow>/home \"назва будинку\" {0}</color>." },
+                {"HomeTPLimitReached", "Ви вичерпали щоденний ліміт {0} телепортацій сьогодні!"},
+                {"HomeTPAmount", "У вас залишилось {0} телепортацій додому сьогодні!"},
+                {"HomesListWiped", "Ви очистили всі місця, збережені як будинок!"},
+                {"HomeTPBuildingBlocked", "Ви не можете зберегти місце розташування як будинок, якщо у вас немає прав на будівництво в цій зоні!"},
+                {"HomeTPSwimming", "Ви не можете встановлювати місце розташування в якості будинку поки пливете!"},
+                {"HomeTPCrafting", "Ви не можете встановлювати місце розташування як будинок в процесі крафту!"},
+                {"Request", "Ви запросили телепортацію до {0}!"},
+                {"RequestTarget", "{0} запросив телепортацію до вас! Використовуйте <color=yellow>/tpa</color>, щоб прийняти!"},
+                {"RequestTargetOff", "Ваш запит було скасовано, оскільки ціль зараз не в мережі." },
+                {"TPR_NoClan_NoFriend_NoTeam", "Ця команда доступна лише друзям, учасникам команди або клану!"},
+                {"PendingRequest", "У вас вже є активний запит, скасуйте його, чекайте на підтвердження, або скасування по таймууту!"},
+                {"PendingRequestTarget", "У гравця, до якого ви хочете телепортуватися, вже є активний запит, спробуйте пізніше!"},
+                {"NoPendingRequest", "Ви не маєте активних запитів на телепортацію!"},
+                {"AcceptOnRoof", "Ви не можете прийняти запит на телепортацію стоячи на стелі, спустіться на фундамент!"},
+                {"Accept", "{0} прийняв ваш запит! Телепортація через {1} секунд!"},
+                {"AcceptTarget", "Ви отримали запит на телепортацію {0}!"},
+                {"AcceptToggleOff", "Ви вимкнули автоматичне /tpa!"},
+                {"AcceptToggleOn", "Ви ввімкнули автоматичне /tpa!"},
+                {"NotAllowed", "Ви не можете використовувати цю команду!"},
+                {"Success", "Ви телепортовані до {0}!"},
+                {"SuccessTarget", "{0} телепортований до вас!"},
+                {"Cancelled", "Ваш запит на телепортацію до {0} було скасовано!"},
+                {"CancelledTarget", "Запит на телепортацію {0} було скасовано!"},
+                {"TPCancelled", "Ваш телепорт скасовано!"},
+                {"TPCancelledTarget", "{0} скасував телепортацію!"},
+                {"TPYouCancelledTarget", "Ви скасували телепортацію {0}!"},
+                {"TimedOut", "{0} не відповів на ваш запит під час!"},
+                {"TimedOutTarget", "Ви не вчасно відповіли на запит телепортації від {0}!"},
+                {"TargetDisconnected", "{0} відключився, ваша телепортація скасована!"},
+                {"TPRCooldown", "Ваші запити на телепортацію на даний момент на перезарядці. Вам необхідно зачекати на {0}, перш ніж надіслати наступний запит."},
+                {"TPRCooldownBypass", "Ваші запити на телепортацію були перезаряджені. Ви обрали уникнути очікування, сплативши {0} з вашого балансу."},
+                {"TPRCooldownBypassF", "Ваші запити на телепортацію на даний момент на перезарядці. У вас недостатньо коштів - щоб уникнути очікування."},
+                {"TPRCooldownBypassP", "Ви можете вибрати оплатити {0} щоб уникнути очікування перезаряджання." },
+                {"TPMoney", "{0} списано з вашого облікового запису!"},
+                {"TPNoMoney", "У вас немає жодного облікового запису {0}!"},
+                {"TPRCooldownBypassP2", "Напишіть <color=yellow>/tpr {0}</color>." },
+                {"TPRCooldownBypassP2a", "Напишіть <color=yellow>/tpr \"ім'я гравця\" {0}</color>." },
+                {"TPRLimitReached", "Ви вичерпали щоденний ліміт {0} запитів на телепортацію сьогодні!"},
+                {"TPRAmount", "У вас залишилось {0} запитів на телепортацію на сьогодні!"},
+                {"TPRTarget", "Ваша мета зараз не доступна!"},
+                {"TPDead", "Ви не можете телепортуватися, поки мертві!"},
+                {"TPWounded", "Ви не можете телепортуватися, будучи пораненим!"},
+                {"TPTooCold", "Вам надто холодно для телепортації!"},
+                {"TPTooHot", "Вам дуже жарко для телепортації!"},
+                {"TPBoat", "Ви не можете телепортуватися, перебуваючи на човні!"},
+                {"TPHostile", "Ви не можете телепортуватися в Місто NPC або Табір бандитів, поки ворожі!"},
+                {"TPJunkpile", "Ви не можете телепортуватися з купи сміття"},
+                {"HostileTimer", "Телепорт буде доступний через {0} хвилин."},
+                {"TPMounted", "Ви не можете телепортуватись, коли сидите!"},
+                {"TPBuildingBlocked", "Ви не можете телепортуватися, перебуваючи у зоні блокування будівництва!"},
+                //{"TPInsideTerrainFrom", "Вы не можете телепортироваться, находясь внутри местности!"},
+                //{"TPInsideTerrainTo", "Вы не можете телепортироваться в место, которое находится внутри местности!"},
+                {"TPAboveWater", "Ви не можете телепортуватися, перебуваючи над водою!"},
+                {"TPTargetBuildingBlocked", "Ви не можете телепортуватися до зони, де блоковано будівництво!"},
+                {"TPTargetInsideBlock", "Ви не можете телепортуватися у фундамент!"},
+                {"TPTargetInsideRock", "Ви не можете телепортуватись у скелю!"},
+                {"TPSwimming", "Ви не можете телепортуватися, поки пливете!"},
+                {"TPCargoShip", "Ви не можете телепортуватись з вантажного корабля!"},
+                {"TPOilRig", "Ви не можете телепортуватися з нафтової вежі!"},
+                {"TPExcavator", "Ви не можете телепортувати з екскаватора!"},
+                {"TPHotAirBalloon", "Ви не можете телепортуватися з, або на повітряну кулю!"},
+                {"TPLift", "Ви не можете телепортуватися, перебуваючи в ліфті або підйомнику!"},
+                {"TPBucketLift", "Ви не можете телепортуватися, перебуваючи в ковшовому підйомнику!"},
+                {"TPRegLift", "Ви не можете телепортуватися, перебуваючи в ліфті!"},
+                {"TPSafeZone", "Ви не можете телепортуватися із безпечної зони!"},
+                {"TPFlagZone", "Ви не можете телепортуватися із цієї зони!"},
+                {"TPNoEscapeBlocked", "Ви не можете телепортуватися поки активне блокування!"},
+                {"TPCrafting", "Ви не можете телепортуватись у процесі крафту!"},
+                {"TPBlockedItem", "Ви не можете телепортуватися поки що несете: {0}!"},
+                {"TooCloseToMon", "Ви не можете телепортуватися так близько до {0}!"},
+                {"TPHomeSafeZoneOnly", "Ви можете телепортуватися додому лише з безпечної зони!" },
+                {"TooCloseToCave", "Ви не можете телепортуватись так близько до печери!"},
+                {"HomeTooCloseToCave", "Ви не можете зберегти розташування як будинок так близько до печери!"},
+                {"HomeTooCloseToMon", "Ви не можете зберегти розташування як будинок так близько до пам'ятника!"},
+                {"CannotTeleportFromHome", "Ви повинні вийти з вашої бази, перш ніж телепортувати!"},
+                {"WaitGlobalCooldown", "Ви повинні почекати, поки ваш глобальний телепорт перезаряджається!" },
+
+                {"DM_TownTP", "Ви телепортовані в {0}!"},
+                {"DM_TownTPNoLocation", "Розташування <color=yellow>{0}</color> на даний момент не встановлено!"},
+                {"DM_TownTPDisabled", "<color=yellow>{0}</color> в даний момент вимкнено у файлі налаштувань!"},
+                {"DM_TownTPLocation", "Ви встановили розташування <color=yellow>{0}</color> в {1}!"},
+                {"DM_TownTPCreated", "Ви створили команду: <color=yellow>{0}</color>"},
+                {"DM_TownTPRemoved", "Ви видалили команду: <color=yellow>{0}</color>"},
+                {"DM_TownTPDoesNotExist", "Команда не існує: <color=yellow>{0}</color>"},
+                {"DM_TownTPExists", "Команда <color=yellow>{0}</color> вже існує!"},
+                {"DM_TownTPLocationsCleared", "Ви очистили всі місця для {0}!"},
+                {"DM_TownTPStarted", "Телепортація в {0} через {1} секунд!"},
+                {"DM_TownTPCooldown", "Ваш телепорт перезаряджається. Вам необхідно почекати {0} до наступної телепортації."},
+                {"DM_TownTPCooldownBypass", "Ваш телепорт був на перезарядженні. Ви обрали уникнути очікування, сплативши {0} з вашого балансу."},
+                {"DM_TownTPCooldownBypassF", "Ваш телепорт перезаряджається. У вас недостатньо коштів ({0}), щоб уникнути очікування."},
+                {"DM_TownTPCooldownBypassP", "Ви можете вибрати оплатити {0} щоб уникнути очікування перезаряджання." },
+                {"DM_TownTPCooldownBypassP2", "Введіть <color=yellow>/{0} {1}</color>" },
+                {"DM_TownTPLimitReached", "Ви вичерпали щоденний ліміт {0} телепортацій сьогодні! Ви повинні почекати {1} до наступної телепортації."},
+                {"DM_TownTPAmount", "У вас залишилось {0} телепортацій <color=yellow>{1}</color> сьогодні!"},
+
+                {"Days", "днів" },
+                {"Hours", "годин" },
+                {"Minutes", "хвилин" },
+                {"Seconds", "секунд" },
+
+                {"Interrupted", "Вашу телепортацію було перервано!"},
+                {"InterruptedTarget", "Телепортація {0} була перервана!"},
+                {"Unlimited", "Не обмежено"},
+                {
+                    "TPInfoGeneral", string.Join(NewLine, new[]
+                    {
+                        "Будь ласка, вкажіть модуль, про який ви хочете переглянути інформацію.",
+                        "Доступні модулі: ",
+                    })
+                },
+                {
+                    "TPHelpGeneral", string.Join(NewLine, new[]
+                    {
+                        "<color=yellow>/tpinfo</color> - Відображає ліміти та перезарядження.",
+                        "Будь ласка, вкажіть модуль, за яким ви хочете отримати допомогу.",
+                        "Доступні модулі: ",
+                    })
+                },
+                {
+                    "TPHelpadmintp", string.Join(NewLine, new[]
+                    {
+                        "Як адмін, ви маєте доступ до наступних команд:",
+                        "<color=yellow>/tp \"ім'я гравця\"</color> - Телепортує вас до вказаного гравця.",
+                        "<color=yellow>/tp \"ім'я гравця\" \"ім'я гравця 2\"</color> - Телепортує гравця з ім'ям 'ім'я гравця' до гравця 'ім'я гравця 2'.",
+                        "<color=yellow>/tp x y z</color> - Телепортує вас до зазначених координат.",
+                        "<color=yellow>/tpl</color> - Відображає список збережених позицій.",
+                        "<color=yellow>/tpl \"назва розташування\"</color> - Телепортує вас у збережене місцезнаходження.",
+                        "<color=yellow>/tpsave \"назва розташування\"</color> - Зберігає ваше поточне розташування з вказаною назвою.",
+                        "<color=yellow>/tpremove \"назва розташування\"</color> - Видаляє розташування зі списку збережених.",
+                        "<color=yellow>/tpb</color> - Телепортує вас назад на місце, де ви були перед телепортацією.",
+                        "<color=yellow>/home radius \"радіус\"</color> - Знайти всі будинки в радіусі.",
+                        "<color=yellow>/home delete \"ім'я гравця або ID\" \"назва будинку\"</color> - Видаляє будинок із вказаним ім'ям, що належить вказаному гравцю.",
+                        "<color=yellow>/home tp \"ім'я гравця або ID\" \"назва будинку\"</color> - Телепортує вас до будинку гравця із зазначеною назвою, що належить вказаному гравцю.",
+                        "<color=yellow>/home homes \"ім'я гравця або ID\"</color> - Відображає список усіх будинків, що належать зазначеному гравцеві."
+                    })
+                },
+                {
+                    "TPHelphome", string.Join(NewLine, new[]
+                    {
+                        "Використовуючи наступні команди, ви можете встановити місце розташування вашого будинку, щоб потім до нього телепортуватися:",
+                        "<color=yellow>/home add \"назва будинку\"</color> - Зберігає ваше поточне розташування як ваш будинок із зазначеною назвою.",
+                        "<color=yellow>/home list</color> - Відображає список усіх місць розташування, збережених вами як будинок.",
+                        "<color=yellow>/home remove \"назва будинку\"</color> - Видаляє розташування збереженого будинку з вказаною назвою.",
+                        "<color=yellow>/home \"назва будинку\"</color> - Телепортує вас у місцезнаходження будинку з вказаною назвою."
+                    })
+                },
+                {
+                    "TPHelptpr", string.Join(NewLine, new[]
+                    {
+                        "Використовуючи ці команди, ви можете надіслати запит на телепортацію до гравця або прийняти чийсь запит:",
+                        "<color=yellow>/tpr \"ім'я гравця\"</color> - Надсилає запит на телепортацію гравцю із зазначеним ім'ям.",
+                        "<color=yellow>/tpa</color> - Прийняти запит на телепортацію.",
+                        "<color=yellow>/tpat</color> - Увімк./Вимк. автоматичне прийняття запитів на телепортацію до вас /tpa.",
+                        "<color=yellow>/tpc</color> - Скасувати запит на телепортацію."
+                    })
+                },
+                {
+                    "TPSettingsGeneral", string.Join(NewLine, new[]
+                    {
+                        "Будь ласка, вкажіть модуль, налаштування якого потрібно переглянути.",
+                        "Доступні модулі:",
+                    })
+                },
+                {
+                    "TPSettingshome", string.Join(NewLine, new[]
+                    {
+                        "Система будинків на даний момент має такі включені параметри:",
+                        "Час між телепортами: {0}",
+                        "Щоденний ліміт телепортацій: {1}",
+                        "Кількість збережених будинків: {2}"
+                    })
+                },
+                {
+                    "TPSettingsbandit", string.Join(NewLine, new[]
+                    {
+                        "Система Табір бандитів наразі має такі включені параметри:",
+                        "Час між телепортами: {0}",
+                        "Щоденний ліміт телепортацій: {1}"
+                    })
+                },
+                {
+                    "TPSettingsoutpost", string.Join(NewLine, new[]
+                    {
+                        "Система Місто NPC в даний момент має наступні параметри:",
+                        "Час між телепортами: {0}",
+                        "Щоденний ліміт телепортацій: {1}"
+                    })
+                },
+                {
+                    "TPSettingstpr", string.Join(NewLine, new[]
+                    {
+                        "Система TPR в даний момент має наступні параметри:",
+                        "Час між телепортами: {0}",
+                        "Щоденний ліміт телепортацій: {1}"
+                    })
+                },
+                {
+                    "TPSettingstown", string.Join(NewLine, new[]
+                    {
+                        "У Системі Міст включені такі параметри:",
+                        "Час між телепортами: {0}",
+                        "Щоденний ліміт телепортацій: {1}"
+                    })
+                },
+                {
+                    "TPSettingsdynamic", string.Join(NewLine, new[]
+                    {
+                        "У системі {0} включені такі параметри:",
+                        "Час між телепортами: {1}",
+                        "Щоденний ліміт телепортацій: {2}"
+                    })
+                },
+                {"PlayerNotFound", "Вказаного гравця не виявлено, будь ласка, спробуйте ще раз!"},
+                {"MultiplePlayers", "Знайдено декілька гравців: {0}"},
+                {"CantTeleportToSelf", "Ви не можете телепортуватися до себе!"},
+                {"CantTeleportPlayerToSelf", "Ви не можете телепортувати гравця до себе!"},
+                {"TeleportPendingTPC", "Ви не можете ініціювати телепортацію, поки ви маєте активний запит! Використовуйте <color=yellow>/tpc</color>, щоб скасувати його."},
+                {"TeleportPendingTarget", "Ви не можете надіслати запит до того, хто в процесі телепортації!"},
+                {"LocationExists", "Розташування з такою назвою вже існує в {0}!"},
+                {"LocationExistsNearby", "Розташування з назвою {0} вже існує поряд із поточною позицією!"},
+                {"LocationNotFound", "Не знайдено місцезнаходження з такою назвою!"},
+                {"NoPreviousLocationSaved", "Попереднє розташування не збережене!"},
+                {"HomeExists", "Ви вже зберегли будинок із такою назвою!"},
+                {"HomeExistsNearby", "Будинок з назвою {0} вже існує поряд із поточною позицією!"},
+                {"HomeNotFound", "Будинок з такою назвою не знайдено!"},
+                {"InvalidCoordinates", "Ви вказали неправильні координати!"},
+                {"InvalidHelpModule", "Вказано неправильний модуль!"},
+                {"InvalidCharacter", "Ви використовували неприпустимий символ, обмежтеся літерами від a до z та цифрами."},
+                {
+                    "SyntaxCommandTP", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/tp</color> можливе лише так:",
+                        "<color=yellow>/tp \"ім'я гравця\"</color> - Телепортує вас до вказаного гравця.",
+                        "<color=yellow>/tp \"ім'я гравця\" \"ім'я гравця 2\"</color> - Телепортує гравця з ім'ям 'ім'я гравця' до гравця 'ім'я гравця 2'.",
+                        "<color=yellow>/tp x y z</color> - Телепортує вас до зазначених координат.",
+                        "<color=yellow>/tp \"ім'я гравця\" x y z</color> - Телепортує гравця з ім'ям 'ім'я гравця' до зазначених координат."
+                    })
+                },
+                {
+                    "SyntaxCommandTPL", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/tpl</color> можливе лише так:",
+                        "<color=yellow>/tpl</color> - Відображає список збережених позицій.",
+                        "<color=yellow>/tpl \"назва розташування\"</color> - Телепортує вас у місце із зазначеною назвою."
+                    })
+                },
+                {
+                    "SyntaxCommandTPSave", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/tpsave</color> можливе лише так:",
+                        "<color=yellow>/tpsave \"назва розташування\"</color> - Зберігає ваше поточне розташування з вказаною назвою."
+                    })
+                },
+                {
+                    "SyntaxCommandTPRemove", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/tpremove</color> можливе лише так:",
+                        "<color=yellow>/tpremove \"назва розташування\"</color> - Видаляє розташування за вказаною назвою."
+                    })
+                },
+                {
+                    "SyntaxCommandTPN", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/tpn</color> можливе лише так:",
+                        "<color=yellow>/tpn \"ім'я гравця\"</color> - Телепортує вас на відстань за замовчуванням позаду гравця із зазначеним ім'ям.",
+                        "<color=yellow>/tpn \"ім'я гравця\" \"відстань\"</color> - Телепортує вас на вказану відстань позаду гравця із вказаним ім'ям."
+                    })
+                },
+                {
+                    "SyntaxCommandSetHome", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/home add</color> можливе лише так:",
+                        "<color=yellow>/home add \"назва\"</color> - Зберігає ваше поточне розташування як ваш будинок із зазначеною назвою."
+                    })
+                },
+                {
+                    "SyntaxCommandRemoveHome", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/home remove</color> можливе лише так:",
+                        "<color=yellow>/home remove \"назва\"</color> - Видаляє розташування будинку з вказаною назвою."
+                    })
+                },
+                {
+                    "SyntaxCommandHome", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/home</color> можливе лише так:",
+                        "<color=yellow>/home \"назва\"</color> - Телепортує вас у ваш будинок із зазначеною назвою.",
+                        "<color=yellow>/home \"назва\" pay</color> - Телепортує вас у ваш будинок із зазначеною назвою, уникаючи перезарядки, заплативши за це.",
+                        "<color=yellow>/home add \"назва\"</color> - Зберігає ваше поточне розташування як ваш будинок із зазначеною назвою.",
+                        "<color=yellow>/home list</color> - Відображає список усіх місць розташування, збережених вами як будинок.",
+                        "<color=yellow>/home remove \"назва\"</color> - Видаляє розташування будинку з вказаною назвою."
+                    })
+                },
+                {
+                    "SyntaxCommandHomeAdmin", string.Join(NewLine, new[]
+                    {
+                        "<color=yellow>/home radius \"радіус\"</color> - Відображає список усіх будинків у радіусі(10).",
+                        "<color=yellow>/home delete \"ім'я гравця або ID\" \"назва\"</color> - Видаляє будинок із зазначеною назвою, що належить вказаному гравцю.",
+                        "<color=yellow>/home tp \"ім'я гравця або ID\" \"назва\"</color> - Телепортує вас до будинку із зазначеною назвою, що належить вказаному гравцю.",
+                        "<color=yellow>/home homes \"ім'я гравця або ID\"</color> - Відображає список усіх будинків, що належать вказаному гравцю."
+                    })
+                },
+                {
+                    "SyntaxCommandTown", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/town</color> можливе лише так:",
+                        "<color=yellow>/town</color> - Телепортує вас до міста.",
+                        "<color=yellow>/town pay</color> - Телепортує вас до міста з оплатою штрафу."
+                    })
+                },
+                {
+                    "SyntaxCommandTownAdmin", string.Join(NewLine, new[]
+                    {
+                        "<color=yellow>/town set</color> - Зберігає поточне розташування як Місто.",
+                    })
+                },
+                {
+                    "SyntaxCommandOutpost", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/outpost</color> можливе лише так:",
+                        "<color=yellow>/outpost</color> - Телепортирует вас в Город NPC.",
+                        "<color=yellow>/outpost pay</color> - Телепортує вас у Місто NPC з оплатою штрафу."
+                    })
+                },
+                {
+                    "SyntaxCommandOutpostAdmin", string.Join(NewLine, new[]
+                    {
+                        "<color=yellow>/outpost set</color> - Зберігає поточне розташування як Місто NPC.",
+                    })
+                },
+                {
+                    "SyntaxCommandBandit", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/bandit</color> можливе лише так:",
+                        "<color=yellow>/bandit</color> - Телепортує вас до Табору бандитів.",
+                        "<color=yellow>/bandit pay</color> - Телепортує вас до Табору бандитів з оплатою штрафу."
+                    })
+                },
+                {
+                    "SyntaxCommandBanditAdmin", string.Join(NewLine, new[]
+                    {
+                        "<color=yellow>/bandit set</color> - Зберігає поточне розташування як Табір бандитів.",
+                    })
+                },
+                {
+                    "SyntaxCommandHomeDelete", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/home delete</color> можливе лише так:",
+                        "<color=yellow>/home delete \"ім'я гравця або ID\" \"назва\"</color> - Видаляє будинок із зазначеною назвою, що належить вказаному гравцю."
+                    })
+                },
+                {
+                    "SyntaxCommandHomeAdminTP", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/home tp</color> можливе лише так:",
+                        "<color=yellow>/home tp \"ім'я гравця або ID\" \"назва\"</color> - Телепортує вас до будинку гравця із зазначеною назвою, що належить вказаному гравцю."
+                    })
+                },
+                {
+                    "SyntaxCommandHomeHomes", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/home homes</color> можливе лише так:",
+                        "<color=yellow>/home homes \"ім'я гравця або ID\"</color> - Відображає список усіх будинків, що належать вказаному гравцю."
+                    })
+                },
+                {
+                    "SyntaxCommandListHomes", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/home list</color> можливе лише так:",
+                        "<color=yellow>/home list</color> - Відображає список усіх місць розташування, збережених вами як будинок."
+                    })
+                },
+                {
+                    "SyntaxCommandTPR", string.Join(NewLine, new[]
+                    {
+                        "Сталася синтаксична помилка!",
+                        "Використання команди <color=yellow>/tpr</color> можливе лише так:",
+                        "<color=yellow>/tpr \"ім'я гравця або ID\"</color> - Надсилає вказаному гравцеві запит на телепортацію."
+                    })
+                },
+                {
+                    "SyntaxCommandTPA", string.Join(NewLine, new[]
+                    {
+                        "Відбулася синтаксична помилка!",
+                        "Використання команди <color=yellow>/tpa</color> можливе лише таким чином:",
+                        "<color=yellow>/tpa</color> - Прийняти вхідний запит на телепортацію."
+                    })
+                },
+                {
+                    "SyntaxCommandTPC", string.Join(NewLine, new[]
+                    {
+                        "Відбулася синтаксична помилка!",
+                        "Використання команди <color=yellow>/tpc</color> можливе лише таким чином:",
+                        "<color=yellow>/tpc</color> - Скасувати запит на телепортацію."
+                    })
+                },
+                {
+                    "SyntaxConsoleCommandToPos", string.Join(NewLine, new[]
+                    {
+                        "Відбулася синтаксична помилка!",
+                        "Використання консольної команди <color=orange>teleport.topos</color> можливе лише таким чином:",
+                        " > <color=orange>teleport.topos \"ім'я гравця\" x y z</color>"
+                    })
+                },
+                {
+                    "SyntaxConsoleCommandToPlayer", string.Join(NewLine, new[]
+                    {
+                        "Відбулася синтаксична помилка!",
+                        "Використання консольної команди <color=orange>teleport.toplayer</color> можливе лише таким чином:",
+                        " > <color=orange>teleport.toplayer \"ім'я гравця або ID\" \"ім'я гравця 2|id 2\"</color>"
+                    })
+                },
+                {"LogTeleport", "{0} телепортовано до {1}."},
+                {"LogTeleportPlayer", "{0} телепортував {1} до {2}."},
+                {"LogTeleportBack", "{0} телепортований назад, до попереднього розташування."}
+            };
+
+            foreach (var key in config.DynamicCommands.Keys)
+            {
+                uk[key] = key;
+            }
+
+            lang.RegisterMessages(uk, this, "uk");
         }
 
         private void Init()
         {
+            Unsubscribe(nameof(OnPlayerRespawn));
             Unsubscribe(nameof(OnPlayerViolation));
             Unsubscribe(nameof(OnEntityTakeDamage));
             Unsubscribe(nameof(OnPlayerSleepEnded));
@@ -1720,6 +2242,7 @@ namespace Oxide.Plugins
             try { DisabledCommandData = dataDisabled.ReadObject<DisabledData>(); } catch { }
             if (DisabledCommandData == null) { DisabledCommandData = new DisabledData(); }
 
+            permission.RegisterPermission("nteleportation.ignoreglobalcooldown", this);
             permission.RegisterPermission("nteleportation.norestrictions", this);
             permission.RegisterPermission("nteleportation.globalcooldownvip", this);
             permission.RegisterPermission(PermFoundationCheck, this);
@@ -1728,6 +2251,7 @@ namespace Oxide.Plugins
             permission.RegisterPermission(PermHomeHomes, this);
             permission.RegisterPermission(PermImportHomes, this);
             permission.RegisterPermission(PermRadiusHome, this);
+            permission.RegisterPermission(PermDisallowTpToMe, this);
             permission.RegisterPermission(PermTp, this);
             permission.RegisterPermission(PermTpB, this);
             permission.RegisterPermission(PermTpR, this);
@@ -1751,6 +2275,7 @@ namespace Oxide.Plugins
             CheckPerms(config.TPR.VIPCooldowns);
             CheckPerms(config.TPR.VIPCountdowns);
             CheckPerms(config.TPR.VIPDailyLimits);
+            CheckPerms(config.Settings.TPB.Countdowns);
 
             foreach (var entry in config.DynamicCommands)
             {
@@ -1809,6 +2334,10 @@ namespace Oxide.Plugins
 
         private void SetGlobalCooldown(BasePlayer player)
         {
+            if (permission.UserHasPermission(player.UserIDString, "nteleportation.ignoreglobalcooldown"))
+            {
+                return;
+            }
             if (config.Settings.GlobalVIP > 0f && permission.UserHasPermission(player.UserIDString, "nteleportation.globalcooldownvip"))
             {
                 ulong userid = player.userID;
@@ -1834,9 +2363,21 @@ namespace Oxide.Plugins
             return cooldown - Time.time;
         }
 
+        private bool IsEmptyMap()
+        {
+            foreach (var b in BuildingManager.server.buildingDictionary)
+            {
+                if (b.Value.HasDecayEntities() && b.Value.decayEntities.ToList().Exists(de => de != null && de.OwnerID.IsSteamId()))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         private void CheckNewSave()
         {
-            if (BuildingManager.server.buildingDictionary.Count == 0)
+            if (IsEmptyMap())
             {
                 newSave = true;
             }
@@ -1868,19 +2409,19 @@ namespace Oxide.Plugins
                 {
                     if (entry.Value.Location != Vector3.zero || entry.Value.Locations.Count > 0)
                     {
-                        changed = true;
                         entry.Value.Location = Vector3.zero;
                         entry.Value.Locations.Clear();
+                        changed = true;
                     }
                 }
 
                 if (!changed) return;
-                Puts("Rust was upgraded or map changed - clearing homes and all locations!");                
+                Puts("Rust was upgraded or map changed - clearing homes and all locations!");
                 SaveConfig();
             }
             else
             {
-                Puts("Rust was upgraded or map changed - homes, town, islands, outpost and bandit may be invalid!");
+                Puts("Rust was upgraded or map changed - homes, town, islands, outpost, bandit, etc may be invalid!");
             }
         }
 
@@ -1889,6 +2430,11 @@ namespace Oxide.Plugins
             if (config.Settings.Interrupt.Hurt || config.Settings.Interrupt.Cold || config.Settings.Interrupt.Hot)
             {
                 Subscribe(nameof(OnEntityTakeDamage));
+            }
+
+            if (config.Settings.RespawnOutpost)
+            {
+                Subscribe(nameof(OnPlayerRespawn));
             }
 
             Subscribe(nameof(OnPlayerSleepEnded));
@@ -1910,8 +2456,65 @@ namespace Oxide.Plugins
             InitializeDynamicCommands();
             LoadDataAndPerms();
             CheckNewSave();
+            AddCovalenceCommands();
+            FindMonuments();
+            foreach (var player in BasePlayer.activePlayerList) OnPlayerConnected(player);
+            TryAddOutpostHitchLocations();
+        }
 
-            if (config.Settings.TPREnabled) AddCovalenceCommand("tpr", nameof(CommandTeleportRequest));
+        private HashSet<Vector3> outpostHitches = new HashSet<Vector3>();
+
+        private void OnWorldPrefabSpawned(GameObject go, string category) // @!Lone
+        {
+            if (go.name != "assets/prefabs/deployable/hitch & trough/hitchtrough.deployed.prefab")
+            {
+                return;
+            }
+            var outpost = GetSettings("outpost");
+            if (outpost == null)
+            {
+                Unsubscribe(nameof(OnWorldPrefabSpawned));
+                return;
+            }
+            if (outpostHitches.Add(go.transform.position))
+            {
+                Puts("{0} Outpost location: {1}", DateTime.Now, go.transform.position);
+            }
+            UnityEngine.Object.Destroy(go);
+        }
+
+        private void TryAddOutpostHitchLocations()
+        {
+            if (outpostHitches.Count > 0)
+            {
+                var outpost = GetSettings("outpost");
+                if (outpost == null)
+                {
+                    return;
+                }
+                bool changed = false;
+                foreach (var position in outpostHitches)
+                {
+                    if (!outpost.Locations.Contains(position))
+                    {
+                        outpost.Locations.Insert(0, position);
+                        outpost.Location = position;
+                        changed = true;
+                    }
+                }
+                if (changed)
+                {
+                    SaveConfig();
+                }
+            }
+        }
+
+        private void AddCovalenceCommands()
+        {
+            if (config.Settings.TPREnabled)
+            {
+                AddCovalenceCommand("tpr", nameof(CommandTeleportRequest));
+            }
             if (config.Settings.HomesEnabled)
             {
                 AddCovalenceCommand("home", nameof(CommandHome));
@@ -1923,7 +2526,6 @@ namespace Oxide.Plugins
                 AddCovalenceCommand("tphome", nameof(CommandHomeAdminTP));
                 AddCovalenceCommand("homehomes", nameof(CommandHomeHomes));
             }
-
             AddCovalenceCommand("tnt", nameof(CommandToggle));
             AddCovalenceCommand("tp", nameof(CommandTeleport));
             AddCovalenceCommand("tpn", nameof(CommandTeleportNear));
@@ -1941,8 +2543,6 @@ namespace Oxide.Plugins
             AddCovalenceCommand("teleport.topos", nameof(CommandTeleportII));
             AddCovalenceCommand("teleport.importhomes", nameof(CommandImportHomes));
             AddCovalenceCommand("spm", nameof(CommandSphereMonuments));
-            FindMonuments();
-            foreach (var player in BasePlayer.activePlayerList) OnPlayerConnected(player);
         }
 
         void OnNewSave(string strFilename)
@@ -2040,8 +2640,7 @@ namespace Oxide.Plugins
                 teleporting.Remove(userID);
 
                 if (teleporting.Count == 0) Unsubscribe(nameof(OnPlayerViolation));
-            });
-            SendEffect(player);
+            });            
         }
 
         void OnPlayerDisconnected(BasePlayer player)
@@ -2201,7 +2800,7 @@ namespace Oxide.Plugins
                     if (config.Settings.AutoGenOutpost && outpost.Location == Vector3.zero)
                     {
 #if DEBUG
-                        Puts("  Adding Outpost target");
+                        Puts("  Looking for Outpost target");
 #endif
                         bool changedOutpost = false;
                         var ents = Pool.GetList<BaseEntity>();
@@ -2217,18 +2816,27 @@ namespace Oxide.Plugins
                                 outpost.Location = entity.transform.position + entity.transform.forward + new Vector3(0f, 1f, 0f);
                                 if (!outpost.Locations.Contains(outpost.Location)) outpost.Locations.Add(outpost.Location);
                                 changedOutpost = true;
+#if DEBUG
+                                Puts("  Adding Outpost target {0}", outpost.Location);
+#endif
                             }
                             else if (entity is Workbench)
                             {
                                 outpost.Location = entity.transform.position + entity.transform.forward + new Vector3(0f, 1f, 0f);
                                 if (!outpost.Locations.Contains(outpost.Location)) outpost.Locations.Add(outpost.Location);
                                 changedOutpost = true;
+#if DEBUG
+                                Puts("  Adding Outpost target {0}", outpost.Location);
+#endif
                             }
                             else if (entity is BaseChair)
                             {
                                 outpost.Location = entity.transform.position + entity.transform.right + new Vector3(0f, 1f, 0f);
                                 if (!outpost.Locations.Contains(outpost.Location)) outpost.Locations.Add(outpost.Location);
                                 changedOutpost = true;
+#if DEBUG
+                                Puts("  Adding Outpost target {0}", outpost.Location);
+#endif
                             }
                         }
                         if (changedOutpost) SaveConfig();
@@ -2323,7 +2931,7 @@ namespace Oxide.Plugins
             }
         }
 
-        private bool OutOfRange(MonumentInfo m, Vector3 a) => m.transform.position.y - a.y > 3f || !m.IsInBounds(a);
+        private bool OutOfRange(MonumentInfo m, Vector3 a) => Mathf.Abs(m.transform.position.y - a.y) > 5f || !m.IsInBounds(a) || m.Distance(a) > m.Bounds.extents.Max();
 
         private void CommandToggle(IPlayer user, string command, string[] args)
         {
@@ -2384,6 +2992,11 @@ namespace Oxide.Plugins
                         PrintMsgL(player, "CantTeleportPlayerToSelf");
                         return;
                     }
+                    if (permission.UserHasPermission(player.UserIDString, PermDisallowTpToMe))
+                    {
+                        PrintMsgL(player, "CantTeleportPlayerToYourself");
+                        return;
+                    }
                     Teleport(origin, target);
                     PrintMsgL(player, "AdminTPPlayers", origin.displayName, target.displayName);
                     PrintMsgL(origin, "AdminTPPlayer", player.displayName, target.displayName);
@@ -2407,9 +3020,14 @@ namespace Oxide.Plugins
                     PrintMsgL(player, "AdminTPCoordinates", player.transform.position);
                     Puts(_("LogTeleport", null, player.displayName, player.transform.position));
                     break;
-                case 4:
+                case 4:                    
                     target = FindPlayersSingle(args[0], player);
                     if (target == null) return;
+                    if (permission.UserHasPermission(player.UserIDString, PermDisallowTpToMe))
+                    {
+                        PrintMsgL(player, "CantTeleportPlayerToYourself");
+                        return;
+                    }
                     if (!float.TryParse(args[1].Replace(",", string.Empty), out x) || !float.TryParse(args[2].Replace(",", string.Empty), out y) || !float.TryParse(args[3], out z))
                     {
                         PrintMsgL(player, "InvalidCoordinates");
@@ -2592,12 +3210,81 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "NoPreviousLocationSaved");
                 return;
             }
-
+            if (TeleportTimers.ContainsKey(player.userID))
+            {
+                PrintMsgL(player, "TeleportPendingTPC");
+                return;
+            }
+            var countdown = GetLower(player, config.Settings.TPB.Countdowns, config.Settings.TPB.Countdown);
+            if (countdown > 0f)
+            {
+                TeleportBack(player, adminData, countdown);
+                return;
+            }
             Teleport(player, adminData.PreviousLocation, false);
             adminData.PreviousLocation = Vector3.zero;
             changedAdmin = true;
             PrintMsgL(player, "AdminTPBack");
             Puts(_("LogTeleportBack", null, player.displayName));
+        }
+
+        private void TeleportBack(BasePlayer player, AdminData adminData, int countdown)
+        {
+            string err = null;
+            var location = adminData.PreviousLocation;
+            TeleportTimers[player.userID] = new TeleportTimer
+            {
+                OriginPlayer = player,
+
+                Timer = timer.Once(countdown, () =>
+                {
+#if DEBUG
+                    Puts("Calling CheckPlayer from cmdChatHomeTP");
+#endif
+                    if (!CanBypassRestrictions(player.UserIDString))
+                    {
+                        err = CheckPlayer(player, config.Home.UsableOutOfBuildingBlocked, CanCraftHome(player), true, "home");
+                        if (err != null)
+                        {
+                            PrintMsgL(player, "Interrupted");
+                            PrintMsgL(player, err);
+                            TeleportTimers.Remove(player.userID);
+                            return;
+                        }
+                        err = CanPlayerTeleport(player, location);
+                        if (err != null)
+                        {
+                            PrintMsgL(player, "Interrupted");
+                            PrintMsgL(player, err);
+                            TeleportTimers.Remove(player.userID);
+                            return;
+                        }
+                        err = CheckItems(player);
+                        if (err != null)
+                        {
+                            PrintMsgL(player, "Interrupted");
+                            PrintMsgL(player, "TPBlockedItem", err);
+                            TeleportTimers.Remove(player.userID);
+                            return;
+                        }
+                        err = IsInsideEntity(location, player.userID);
+                        if (err != null)
+                        {
+                            PrintMsgL(player, "Interrupted");
+                            PrintMsgL(player, err);
+                            TeleportTimers.Remove(player.userID);
+                            return;
+                        }
+                    }
+                    Teleport(player, location, false);
+                    adminData.PreviousLocation = Vector3.zero;
+                    changedAdmin = true;
+                    PrintMsgL(player, "AdminTPBack");
+                    Puts(_("LogTeleportBack", null, player.displayName));
+                    TeleportTimers.Remove(player.userID);
+                })
+            };
+            PrintMsgL(player, "DM_TownTPStarted", location, countdown);
         }
 
         private void CommandSetHome(IPlayer user, string command, string[] args)
@@ -2630,6 +3317,12 @@ namespace Oxide.Plugins
             var positionCoordinates = player.transform.position;
             if (!CanBypassRestrictions(player.UserIDString))
             {
+                var getUseableTime = GetUseableTime(config.Home.Hours);
+                if (getUseableTime > 0.0)
+                {
+                    PrintMsgL(player, "NotUseable", FormatTime(player, getUseableTime));
+                    return;
+                }
                 err = CheckPlayer(player, false, CanCraftHome(player), true, "sethome");
                 if (err != null)
                 {
@@ -2640,7 +3333,7 @@ namespace Oxide.Plugins
                 {
                     PrintMsgL(player, "HomeTPBuildingBlocked");
                     return;
-                }                
+                }
                 if (limit > 0 && homeData.Locations.Count >= limit)
                 {
                     PrintMsgL(player, "HomeMaxLocations", limit);
@@ -2672,6 +3365,7 @@ namespace Oxide.Plugins
             changedHome = true;
             PrintMsgL(player, "HomeSave");
             PrintMsgL(player, "HomeQuota", homeData.Locations.Count, limit);
+            Interface.CallHook("OnHomeAdded", player, positionCoordinates, args[0]);
         }
 
         private void CommandRemoveHome(IPlayer user, string command, string[] args)
@@ -2718,8 +3412,10 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "HomeListEmpty");
                 return;
             }
-            if (homeData.Locations.Remove(args[0]))
+            if (homeData.Locations.ContainsKey(args[0]))
             {
+                Interface.CallHook("OnHomeRemoved", player, homeData.Locations[args[0]], args[0]);
+                homeData.Locations.Remove(args[0]);
                 changedHome = true;
                 PrintMsgL(player, "HomeRemove", args[0]);
             }
@@ -2881,11 +3577,11 @@ namespace Oxide.Plugins
             }
             if (CanBypassRestrictions(player.UserIDString)) return true;
             bool foundmoney = false;
-
             // Check Economics first.  If not in use or balance low, check ServerRewards below
             if (config.Settings.UseEconomics && Economics != null)
             {
                 var balance = (double)Economics?.CallHook("Balance", player.UserIDString);
+
                 if (balance >= bypass)
                 {
                     foundmoney = true;
@@ -2976,6 +3672,7 @@ namespace Oxide.Plugins
                 err = CheckFoundation(player.userID, location) ?? CheckTargetLocation(player, location, config.Home.UsableIntoBuildingBlocked, config.Home.CupOwnerAllowOnBuildingBlocked);
                 if (err != null)
                 {
+                    Interface.CallHook("OnHomeRemoved", player, homeData.Locations[args[0]], args[0]);
                     PrintMsgL(player, "HomeRemovedInvalid", args[0]);
                     PrintMsgL(player, err);
                     homeData.Locations.Remove(args[0]);
@@ -2983,6 +3680,7 @@ namespace Oxide.Plugins
                     return;
                 }
                 var cooldown = GetLower(player, config.Home.VIPCooldowns, config.Home.Cooldown);
+                var remain = cooldown - (timestamp - homeData.Teleports.Timestamp);
                 if (cooldown > 0 && timestamp - homeData.Teleports.Timestamp < cooldown)
                 {
                     var cmdSent = args.Length >= 2 ? args[1].ToLower() : string.Empty;
@@ -3018,7 +3716,6 @@ namespace Oxide.Plugins
                         {
                             if (config.Home.Bypass > 0)
                             {
-                                var remain = cooldown - (timestamp - homeData.Teleports.Timestamp);
                                 PrintMsgL(player, "HomeTPCooldown", FormatTime(player, remain));
                                 PrintMsgL(player, "HomeTPCooldownBypassP", config.Home.Bypass);
                                 PrintMsgL(player, "HomeTPCooldownBypassP2", config.Settings.BypassCMD);
@@ -3027,15 +3724,12 @@ namespace Oxide.Plugins
                         }
                         else
                         {
-                            var remain = cooldown - (timestamp - homeData.Teleports.Timestamp);
-
                             PrintMsgL(player, "HomeTPCooldown", FormatTime(player, remain));
                             return;
                         }
                     }
                     else
                     {
-                        var remain = cooldown - (timestamp - homeData.Teleports.Timestamp);
                         PrintMsgL(player, "HomeTPCooldown", FormatTime(player, remain));
                         return;
                     }
@@ -3128,6 +3822,7 @@ namespace Oxide.Plugins
                         err = CheckFoundation(player.userID, location) ?? CheckTargetLocation(player, location, config.Home.UsableIntoBuildingBlocked, config.Home.CupOwnerAllowOnBuildingBlocked);
                         if (err != null)
                         {
+                            Interface.CallHook("OnHomeRemoved", player, homeData.Locations[args[0]], args[0]);
                             PrintMsgL(player, "HomeRemovedInvalid", args[0]);
                             PrintMsgL(player, err);
                             homeData.Locations.Remove(args[0]);
@@ -3208,22 +3903,23 @@ namespace Oxide.Plugins
         {
             if (config.Home.CheckValidOnList)
             {
-                var toRemove = new List<string>();
+                var toRemove = new List<KeyValuePair<string, Vector3>>();
                 foreach (var location in homeData.Locations)
                 {
                     var err = CheckFoundation(player.userID, location.Value);
                     if (err != null)
                     {
                         if (flag) PrintMsgL(player, err);
-                        toRemove.Add(location.Key);
+                        toRemove.Add(location);
                         continue;
                     }
                     if (flag) PrintMsgL(player, $"{location.Key} {location.Value}");
                 }
                 foreach (var loc in toRemove)
                 {
+                    Interface.CallHook("OnHomeRemoved", player, loc.Value, loc.Key);
                     if (flag) PrintMsgL(player, "HomeRemovedInvalid", loc);
-                    homeData.Locations.Remove(loc);
+                    homeData.Locations.Remove(loc.Key);
                     changedHome = true;
                 }
             }
@@ -3248,22 +3944,23 @@ namespace Oxide.Plugins
                 return;
             }
             PrintMsgL(player, "HomeList");
-            var toRemove = new List<string>();
+            var toRemove = new List<KeyValuePair<string, Vector3>>();
             foreach (var location in homeData.Locations)
             {
                 var err = CheckFoundation(userId, location.Value);
                 if (err != null)
                 {
                     PrintMsgL(player, err);
-                    toRemove.Add(location.Key);
+                    toRemove.Add(location);
                     continue;
                 }
                 PrintMsgL(player, $"{location.Key} {location.Value}");
             }
             foreach (var loc in toRemove)
             {
+                Interface.CallHook("OnHomeRemoved", player, loc.Value, loc.Key);
                 PrintMsgL(player, "HomeRemovedInvalid", loc);
-                homeData.Locations.Remove(loc);
+                homeData.Locations.Remove(loc.Key);
                 changedHome = true;
             }
         }
@@ -3343,13 +4040,14 @@ namespace Oxide.Plugins
             return string.Join(", ", list.ToArray());
         }
 
+        private double GetUseableTime(double hours) => hours <= 0.0 ? 0.0 : TimeSpan.FromHours(hours - DateTime.UtcNow.Subtract(SaveRestore.SaveCreatedTime).TotalHours).TotalSeconds;
+
         private void CommandTeleportRequest(IPlayer user, string command, string[] args)
         {
             if (DisabledCommandData.DisabledCommands.Contains(command.ToLower())) { user.Reply("Disabled command: " + command); return; }
             var player = user.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpR) || !player.IsConnected || player.IsSleeping()) return;
             if (!config.Settings.TPREnabled) { user.Reply("TPR is not enabled in the config."); return; }
-            string err = null;
             if (args.Length == 0)
             {
                 PrintMsgL(player, "SyntaxCommandTPR");
@@ -3399,6 +4097,13 @@ namespace Oxide.Plugins
                 _TPR[player.userID] = tprData = new TeleportData();
             if (!CanBypassRestrictions(player.UserIDString))
             {
+                var getUseableTime = GetUseableTime(config.TPR.Hours);
+                if (getUseableTime > 0.0)
+                {
+                    PrintMsgL(player, "NotUseable", FormatTime(player, getUseableTime));
+                    return;
+                }
+                string err = null;
                 float globalCooldownTime = GetGlobalCooldown(player);
                 if (globalCooldownTime > 0f)
                 {
@@ -4148,6 +4853,12 @@ namespace Oxide.Plugins
             string err = null;
             if (!CanBypassRestrictions(player.UserIDString))
             {
+                var getUseableTime = GetUseableTime(settings.Hours);
+                if (getUseableTime > 0.0)
+                {
+                    PrintMsgL(player, "NotUseable", FormatTime(player, getUseableTime));
+                    return;
+                }
                 err = CheckPlayer(player, settings.UsableOutOfBuildingBlocked, settings.CanCraft(player, command), true, command);
                 if (err != null)
                 {
@@ -4541,6 +5252,12 @@ namespace Oxide.Plugins
             var player = user.Object as BasePlayer;
             if (!player || !player.IsAdmin || !player.IsConnected || player.IsSleeping()) return;
 
+            if (args.Length == 1 && args[0] == "test")
+            {
+                player.ChatMessage($"Contains monument topology: {IsMonument(player.transform.position)}");
+                return;
+            }
+
             //foreach (var monument in  TerrainMeta.Path.Monuments) player.SendConsoleCommand("ddraw.sphere", 30f, Color.blue, monument.transform.position, monument.Bounds.size.Max());
 
             foreach (var monument in monuments)
@@ -4598,6 +5315,7 @@ namespace Oxide.Plugins
                 HomeData homeData;
                 if (!_Home.TryGetValue(userId, out homeData))
                     _Home[userId] = homeData = new HomeData();
+                var target = RustCore.FindPlayerById(userId);
                 foreach (var kvp2 in homeList)
                 {
                     var positionData = kvp2.Value as Dictionary<string, object>;
@@ -4607,6 +5325,7 @@ namespace Oxide.Plugins
                     homeData.Locations[kvp2.Key] = position;
                     changedHome = true;
                     count++;
+                    Interface.CallHook("OnHomeAdded", target, position, kvp2.Key);
                 }
             }
             user.Reply(string.Format("Imported {0} homes.", count));
@@ -4623,7 +5342,7 @@ namespace Oxide.Plugins
 
         #region Util
 
-        private string FormatTime(BasePlayer player, int seconds) // Credits MoNaH
+        private string FormatTime(BasePlayer player, double seconds) // Credits MoNaH
         {
             if (config.Settings.UseSeconds) return $"{seconds} {_("Seconds", player)}";
 
@@ -4669,13 +5388,16 @@ namespace Oxide.Plugins
             if (!player.IsValid() || Vector3.Distance(newPosition, Vector3.zero) < 5f) return;
             if (allowTPB)
             {
-                if (config.Settings.TPBTime > 0)
+                if (config.Settings.TPB.Time > 0)
                 {
+                    RemoveLocation(player);
                     Vector3 position = player.transform.position;
-                    timer.In(config.Settings.TPBTime, () => SaveLocation(player, position));
+                    timer.In(config.Settings.TPB.Time, () => SaveLocation(player, position));
                 }
                 else SaveLocation(player, player.transform.position);
             }
+
+            SendEffect(player, config.Settings.DisappearEffects);
 
             newPosition.y += 0.1f;
 
@@ -4685,48 +5407,73 @@ namespace Oxide.Plugins
 
             var oldPosition = player.transform.position;
 
-            try
+            // credits to @ctv and @Def for their assistance
+
+            player.PauseFlyHackDetection();
+            player.PauseSpeedHackDetection();
+            player.UpdateActiveItem(0u);
+            player.EnsureDismounted();
+            player.Server_CancelGesture();
+            player.SetParent(null, true, true);
+
+            if (player.IsConnected)
             {
-                player.UpdateActiveItem(0u); // Prevent weapons when going to safe zone
-                player.EnsureDismounted(); // 1.1.2 @Def
-                player.Server_CancelGesture();
-
-                if (player.HasParent())
-                {
-                    player.SetParent(null, true, true);
-                }
-
-                if (player.IsConnected) // 1.1.2 @Def
-                {
-                    player.EndLooting();
-                    StartSleeping(player);
-                }
-
-                player.RemoveFromTriggers(); // 1.1.2 @Def recommendation to use natural method for issue with triggers
-                player.Teleport(newPosition); // 1.1.6
-
-                if (player.IsConnected && !Net.sv.visibility.IsInside(player.net.group, newPosition))
-                {
-                    player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, true);
-                    player.ClientRPCPlayer(null, player, "StartLoading");
-                    player.SendEntityUpdate();
-
-                    if (!IsInvisible(player)) // fix for becoming networked briefly with vanish while teleporting
-                    {
-                        player.UpdateNetworkGroup(); // 1.1.1 building fix @ctv
-                        player.SendNetworkUpdateImmediate(false);
-                    }
-                }
+                StartSleeping(player);
+                player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, true);
+                player.ClientRPCPlayer(null, player, "StartLoading_Quick", arg1: true);
             }
-            finally
+
+            player.Teleport(newPosition);
+
+            if (player.IsConnected)
             {
-                if (!IsInvisible(player))
-                    player.ForceUpdateTriggers(); // 1.1.4 exploit fix for looting sleepers in safe zones
+                if (!player._limitedNetworking)
+                {
+                    player.UpdateNetworkGroup();
+                    player.SendNetworkUpdateImmediate(false);
+                }
+
+                player.ClearEntityQueue(null);
+                player.SendFullSnapshot();
             }
+
+            if (!player._limitedNetworking)
+            {
+                player.ForceUpdateTriggers();
+            }
+
+            timer.Once(3f, () => teleporting.Remove(player.userID));
 
             SetGlobalCooldown(player);
 
+            SendEffect(player, config.Settings.ReappearEffects);
+
             Interface.CallHook("OnPlayerTeleported", player, oldPosition, newPosition);
+        }
+
+        public void StartSleeping(BasePlayer player) // custom as to not cancel crafting, or remove player from vanish
+        {
+            if (!player.IsSleeping())
+            {
+                Interface.CallHook("OnPlayerSleep", player);
+                player.SetPlayerFlag(BasePlayer.PlayerFlags.Sleeping, b: true);
+                player.sleepStartTime = Time.time;
+                BasePlayer.sleepingPlayerList.Add(player);
+                player.CancelInvoke("InventoryUpdate");
+                player.CancelInvoke("TeamUpdate");
+                player.inventory.loot.Clear();
+                player.inventory.containerMain.OnChanged();
+                player.inventory.containerBelt.OnChanged();
+                player.inventory.containerWear.OnChanged();
+                player.Invoke("TurnOffAllLights", 0f);
+                if (!player._limitedNetworking)
+                {
+                    player.EnablePlayerCollider();
+                    player.RemovePlayerRigidbody();
+                }
+                else player.RemoveFromTriggers();
+                player.SetServerFall(wantsOn: true);
+            }
         }
 
         private void OnMapMarkerAdded(BasePlayer player, ProtoBuf.MapNote note)
@@ -4736,24 +5483,6 @@ namespace Oxide.Plugins
                 float y = TerrainMeta.HeightMap.GetHeight(note.worldPosition);
                 if (player.IsFlying) y = Mathf.Max(y, player.transform.position.y);
                 Teleport(player, note.worldPosition + new Vector3(0f, y, 0f), true);
-            }
-        }
-
-        bool IsInvisible(BasePlayer player)
-        {
-            return Vanish != null && Convert.ToBoolean(Vanish?.Call("IsInvisible", player));
-        }
-
-        public void StartSleeping(BasePlayer player) // custom as to not cancel crafting, or remove player from vanish
-        {
-            if (!player.IsSleeping())
-            {
-                Interface.CallHook("OnPlayerSleep", player);
-                player.SetPlayerFlag(BasePlayer.PlayerFlags.Sleeping, true);
-                player.sleepStartTime = Time.time;
-                BasePlayer.sleepingPlayerList.Add(player);
-                player.CancelInvoke("InventoryUpdate");
-                player.CancelInvoke("TeamUpdate");
             }
         }
 
@@ -4849,6 +5578,11 @@ namespace Oxide.Plugins
         private bool ContainsTopology(TerrainTopology.Enum mask, Vector3 position)
         {
             return (TerrainMeta.TopologyMap.GetTopology(position) & (int)mask) != 0;
+        }
+
+        private static bool ContainsTopology(TerrainTopology.Enum mask, Vector3 position, float radius)
+        {
+            return (TerrainMeta.TopologyMap.GetTopology(position, radius) & (int)mask) != 0;
         }
 
         public bool IsMonument(Vector3 position)
@@ -4988,12 +5722,12 @@ namespace Oxide.Plugins
                 return "TPJunkpile";
             }
 
-            if (config.Settings.Interrupt.Mounted && player.GetMounted() is BaseMountable)
+            if (config.Settings.Interrupt.Mounted && (player.isMounted || IsStandingOnEntity<BaseMountable>(player.transform.position)))
             {
                 return "TPMounted";
             }
 
-            if (config.Settings.Interrupt.Boats && player.isMounted && player.GetMounted() is BaseBoat)
+            if (config.Settings.Interrupt.Boats && (player.GetMounted() is BaseBoat || IsStandingOnEntity<BaseBoat>(player.transform.position)))
             {
                 return "TPBoat";
             }
@@ -5180,9 +5914,8 @@ namespace Oxide.Plugins
                 {
                     if (priv.IsAuthed(player))
                     {
-                        // player is authorized to the cupboard
 #if DEBUG
-                        Puts("Player owns cupboard with auth");
+                        Puts("Player is authorized to the cupboard");
 #endif
                         return true;
                     }
@@ -5216,26 +5949,40 @@ namespace Oxide.Plugins
 #endif
             return true;
         }
-
-        private string CheckInsideEntity(Vector3 targetLocation, ulong userid)
+        
+        private bool IsInsideEntity(Vector3 a)
         {
-            Vector3 a = targetLocation + new Vector3(0, 0.55f);
-            var entities = FindEntitiesOfType<BaseEntity>(a, 0.5f, Layers.Mask.Construction | Layers.Mask.Deployed);
-            if (entities.Any(e => e is BuildingBlock || e is SimpleBuildingBlock || e is IceFence || e is ElectricBattery || e is Door))
+            bool faces = Physics.queriesHitBackfaces;
+            Physics.queriesHitBackfaces = true;
+            RaycastHit hit;
+            bool isHit = Physics.Raycast(a + new Vector3(0f, 0.015f, 0f), Vector3.up, out hit, 7f, Layers.Mask.Construction | Layers.Mask.Deployed, QueryTriggerInteraction.Ignore);
+            Physics.queriesHitBackfaces = faces;
+            if (isHit)
+            {
+                var e = hit.GetEntity();
+                if (e is BuildingBlock)
+                {
+                    return e.ShortPrefabName.Contains("foundation");
+                }
+                if (e is SimpleBuildingBlock || e is IceFence || e is ElectricBattery || e is Door || e is BaseOven)
+                {
+                    return a.y < hit.point.y;
+                }
+            }
+            return false;
+        }
+
+        private string IsInsideEntity(Vector3 targetLocation, ulong userid)
+        {
+            if (IsInsideEntity(targetLocation))
             {
                 return "TPTargetInsideEntity";
             }
-            if (Exploits.TestRock(targetLocation))
+            if (NearMonument(targetLocation) == null && Exploits.TestInsideRock(targetLocation))
             {
                 LogToFile("exploiters", $"{userid} sethome inside a rock at {targetLocation}", this, true);
                 PrintMsgL(userid, "TPTargetInsideRock");
                 return "TPTargetInsideRock";
-            }
-            if (Exploits.TestFoundation(targetLocation))
-            {
-                LogToFile("exploiters", $"{userid} sethome inside a foundation at {targetLocation}", this, true);
-                PrintMsgL(userid, "TPTargetInsideBlock");
-                return "TPTargetInsideBlock";
             }
             return null;
         }
@@ -5268,10 +6015,10 @@ namespace Oxide.Plugins
         private string CheckFoundation(ulong userid, Vector3 position)
         {
             if (CanBypassRestrictions(userid.ToString())) return null;
-            string insideErr = CheckInsideEntity(position, userid);
-            if (insideErr != null) 
+            string insideErr = IsInsideEntity(position, userid);
+            if (insideErr != null)
             {
-                return insideErr;                    
+                return insideErr;
             }
             if (permission.UserHasPermission(userid.ToString(), PermFoundationCheck))
             {
@@ -5299,7 +6046,7 @@ namespace Oxide.Plugins
                 entities = GetFoundation(position);
             }
 
-            entities.RemoveAll(x => !x.IsValid() || x.IsDestroyed);
+            entities.RemoveAll(x => x == null || x.IsDestroyed);
             if (entities.Count == 0) return "HomeNoFoundation";
 
             if (!config.Home.CheckFoundationForOwner) return null;
@@ -5393,18 +6140,7 @@ namespace Oxide.Plugins
 #endif
             Vector3 center = entity.CenterPoint();
 
-            List<BaseEntity> ents = new List<BaseEntity>();
-            Vis.Entities<BaseEntity>(center, 1.5f, ents);
-            foreach (BaseEntity wall in ents)
-            {
-                if (wall.name.Contains("external.high"))
-                {
-#if DEBUG
-                    Puts($"    Found: {wall.name} @ center {center}, pos {position}");
-#endif
-                    return false;
-                }
-            }
+            if (IsExternalWallOverlapped(center, position)) return false;
 #if DEBUG
             Puts($"  Checking block: {entity.name} @ center {center}, pos: {position}");
 #endif
@@ -5429,6 +6165,22 @@ namespace Oxide.Plugins
                 }
             }
 
+            return false;
+        }
+
+        private bool IsExternalWallOverlapped(Vector3 center, Vector3 position)
+        {
+            var entities = FindEntitiesOfType<BaseEntity>(center, 1.5f);
+            foreach (BaseEntity wall in entities)
+            {
+                if (wall?.PrefabName.Contains("external.high") ?? false)
+                {
+#if DEBUG
+                    Puts($"    Found: {wall.name} @ center {center}, pos {position}");
+#endif
+                    return true;
+                }
+            }
             return false;
         }
 
@@ -5575,13 +6327,7 @@ namespace Oxide.Plugins
 
         private bool GetLift(Vector3 position)
         {
-            List<ProceduralLift> nearObjectsOfType = new List<ProceduralLift>();
-            Vis.Entities<ProceduralLift>(position, 0.5f, nearObjectsOfType);
-            if (nearObjectsOfType.Count > 0)
-            {
-                return true;
-            }
-            return false;
+            return FindEntitiesOfType<ProceduralLift>(position, 0.5f).Count > 0;
         }
 
         private bool IsOnJunkPile(BasePlayer player)
@@ -5590,13 +6336,18 @@ namespace Oxide.Plugins
             {
                 return true;
             }
+            return FindEntitiesOfType<JunkPile>(player.transform.position, 3f, Layers.Mask.World).Count > 0;
+        }
 
+        private bool IsStandingOnEntity<T>(Vector3 a, int layers = -1)
+        {
             RaycastHit hit;
-            if (Physics.Raycast(player.transform.position + new Vector3(0f, 0.5f, 0f), Vector3.down, out hit, 3f, Layers.Mask.World, QueryTriggerInteraction.Ignore))
+            if (Physics.Raycast(a + new Vector3(0f, 0.1f, 0f), Vector3.down, out hit, 0.5f, layers, QueryTriggerInteraction.Ignore))
             {
-                return hit.GetEntity() is JunkPile;
+                var entity = hit.GetEntity();
+                if (entity == null) return false;
+                return entity is T || entity.HasParent() && entity.GetParentEntity() is T;
             }
-
             return false;
         }
 
@@ -5607,10 +6358,11 @@ namespace Oxide.Plugins
             if (Physics.Raycast(sourcePos, Vector3.down, out hitinfo, Layers.Mask.Terrain | Layers.Mask.World | Layers.Mask.Construction | Layers.Mask.Deployed))
             {
                 sourcePos.y = Mathf.Max(hitinfo.point.y, sourcePos.y);
-                return sourcePos;
             }
-            if (Physics.Raycast(sourcePos, Vector3.up, out hitinfo, Layers.Mask.Terrain | Layers.Mask.World | Layers.Mask.Construction | Layers.Mask.Deployed))
+            else if (Physics.Raycast(sourcePos, Vector3.up, out hitinfo, Layers.Mask.Terrain | Layers.Mask.World | Layers.Mask.Construction | Layers.Mask.Deployed))
+            {
                 sourcePos.y = Mathf.Max(hitinfo.point.y, sourcePos.y);
+            }
             return sourcePos;
         }
 
@@ -5656,16 +6408,18 @@ namespace Oxide.Plugins
 
         private Effect reusableSoundEffectInstance = new Effect();
 
-        private void SendEffect(BasePlayer player, string sound = null)
+        private void SendEffect(BasePlayer player, List<string> effects)
         {
-            if (config.Settings.PlaySounds && config.Settings.PrefabSounds.Count != 0)
+            if (effects.Count != 0)
             {
-                if (string.IsNullOrEmpty(sound)) sound = config.Settings.PrefabSounds.GetRandom();
+                reusableSoundEffectInstance.Init(Effect.Type.Generic, player, 0, Vector3.zero, Vector3.forward, player.limitNetworking ? player.Connection : null);
+                reusableSoundEffectInstance.pooledString = effects.GetRandom();
 
-                reusableSoundEffectInstance.Init(Effect.Type.Generic, player, 0, Vector3.zero, Vector3.forward);
-                reusableSoundEffectInstance.pooledString = sound;
-
-                EffectNetwork.Send(reusableSoundEffectInstance, player.Connection);
+                if (player.limitNetworking)
+                {
+                    EffectNetwork.Send(reusableSoundEffectInstance, player.Connection);
+                }
+                else EffectNetwork.Send(reusableSoundEffectInstance);
             }
         }
 
@@ -5864,7 +6618,7 @@ namespace Oxide.Plugins
             return players;
         }
         #endregion
-                
+
         private class UnityVector3Converter : JsonConverter
         {
             public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
@@ -5929,38 +6683,22 @@ namespace Oxide.Plugins
 
         public class Exploits
         {
-            public static bool TestFoundation(Vector3 a)
+            public static bool TestInsideRock(Vector3 a)
             {
+                if (ContainsTopology(TerrainTopology.Enum.Monument, a, 25f))
+                {
+                    return false;
+                }
+                bool faces = Physics.queriesHitBackfaces;
                 Physics.queriesHitBackfaces = true;
-
-                bool flag = IsFoundationUpwards(a);
-
-                Physics.queriesHitBackfaces = false;
-
-                return flag;
-            }
-
-            private static bool IsFoundationUpwards(Vector3 point)
-            {
-                RaycastHit hit;
-                if (!Physics.Raycast(point, Vector3.up, out hit, 3f, Layers.Construction)) return false;
-                return hit.collider.name.Contains("foundation");
-            }
-
-            public static bool TestRock(Vector3 a)
-            {
-                Physics.queriesHitBackfaces = true;
-
                 bool flag = IsRockFaceUpwards(a);
-
-                Physics.queriesHitBackfaces = false;
-
+                Physics.queriesHitBackfaces = faces;
                 return flag || IsRockFaceDownwards(a);
             }
 
             private static bool IsRockFaceDownwards(Vector3 a)
             {
-                Vector3 b = a + new Vector3(0f, 20f, 0f);
+                Vector3 b = a + new Vector3(0f, 30f, 0f);
                 Vector3 d = a - b;
                 var hits = Physics.RaycastAll(b, d, d.magnitude, Layers.World);
                 return Array.Exists(hits, hit => IsRock(hit.collider.name));
@@ -5969,8 +6707,7 @@ namespace Oxide.Plugins
             private static bool IsRockFaceUpwards(Vector3 point)
             {
                 RaycastHit hit;
-                if (!Physics.Raycast(point, Vector3.up, out hit, 20f, Layers.World)) return false;
-                return IsRock(hit.collider.gameObject.name);
+                return Physics.Raycast(point, Vector3.up, out hit, 30f, Layers.Mask.World) && IsRock(hit.collider.name);
             }
 
             private static bool IsRock(string name) => name.Contains("rock", CompareOptions.OrdinalIgnoreCase) || name.Contains("formation", CompareOptions.OrdinalIgnoreCase) || name.Contains("cliff", CompareOptions.OrdinalIgnoreCase);
@@ -6040,7 +6777,7 @@ namespace Oxide.Plugins
 
             return dict;
         }
-        
+
         private int GetLimitRemaining(BasePlayer player, string type)
         {
             if (player == null || string.IsNullOrEmpty(type)) return -1;
@@ -6057,14 +6794,14 @@ namespace Oxide.Plugins
             {
                 data.Amount = 0;
                 data.Date = currentDate;
-            }            
+            }
             if (limit > 0)
             {
                 return limit - data.Amount;
             }
             return 0;
         }
-        
+
         private int GetCooldownRemaining(BasePlayer player, string type)
         {
             if (player == null || string.IsNullOrEmpty(type)) return -1;
