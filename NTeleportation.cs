@@ -18,9 +18,17 @@ using UnityEngine;
 using static UnityEngine.Vector3;
 using System.Text.RegularExpressions;
 
+/*
+    Fixed teleport from mounted entities (cargoship, boats, etc), garbage heap barrels, etc
+    Added hook OnTeleportRequested(BasePlayer player, BasePlayer target) - no return behavior
+    Commands /bandit and /outpost will not be registered if disabled or CompoundTeleport is loaded @Matt
+    Added setting InterruptTPOnOilrig (false) @rustkoyak
+    Bandit and Outpost locations will be properly reset on wipe
+*/
+
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "RFC1920", "1.0.86", ResourceId = 1832)]
+    [Info("NTeleportation", "nivex", "1.0.87")]
     class NTeleportation : RustPlugin
     {
         private static readonly Vector3 Up = up;
@@ -87,7 +95,7 @@ namespace Oxide.Plugins
         private bool AutoGenBandit = false;
 
         [PluginReference]
-        private Plugin Clans, Economics, ServerRewards, Friends, RustIO;
+        private Plugin Clans, Economics, ServerRewards, Friends, RustIO, CompoundTeleport;
 
         class ConfigData
         {
@@ -121,6 +129,7 @@ namespace Oxide.Plugins
             public bool InterruptTPOnExcavator { get; set; }
             public bool InterruptTPOnLift { get; set; }
             public bool InterruptTPOnMonument { get; set; }
+            public bool InterruptTPOnOilrig { get; set; }
             public bool InterruptTPOnMounted { get; set; }
             public bool InterruptTPOnSwimming { get; set; }
             public bool InterruptAboveWater{ get; set; }
@@ -285,6 +294,7 @@ namespace Oxide.Plugins
                     InterruptTPOnExcavator = false,
                     InterruptTPOnLift = true,
                     InterruptTPOnMonument = false,
+                    InterruptTPOnOilrig = false,
                     InterruptTPOnMounted = true,
                     InterruptTPOnSwimming = true,
                     InterruptAboveWater = false,
@@ -1466,16 +1476,24 @@ namespace Oxide.Plugins
             configData.GameVersion.Seed      = ConVar.Server.seed;
 
             Config.WriteObject(configData, true);
+
+            if (configData.Settings.OutpostEnabled && CompoundTeleport == null)
+                cmd.AddChatCommand("outpost", this, cmdChatOutpost);
+
+            if (configData.Settings.BanditEnabled && CompoundTeleport == null)
+                cmd.AddChatCommand("bandit", this, cmdChatBandit);
         }
 
         void OnNewSave(string strFilename)
         {
             if(configData.Settings.WipeOnUpgradeOrChange == true)
             {
-                Puts("Rust was upgraded or map changed - clearing homes and town!");
+                Puts("Rust was upgraded or map changed - clearing homes, town, outpost and bandit!");
                 Home.Clear();
                 changedHome = true;
                 configData.Town.Location = default(Vector3);
+                configData.Outpost.Location = default(Vector3);
+                configData.Bandit.Location = default(Vector3);
             }
             else
             {
@@ -1753,6 +1771,7 @@ namespace Oxide.Plugins
                             setextra = true;
                         }
                     }
+                    if (!setextra) configData.Settings.OutpostEnabled = false;
                 }
                 else if(monument.name.Contains("bandit") && configData.Settings.AutoGenBandit)
                 {
@@ -1770,6 +1789,7 @@ namespace Oxide.Plugins
                             break;
                         }
                     }
+                    if (!setextra) configData.Settings.BanditEnabled = false;
                 }
                 else
                 {
@@ -2658,7 +2678,7 @@ namespace Oxide.Plugins
             }
             if (targets.Count > 1)
             {
-                PrintMsgL(player, "MultiplePlayers", string.Join(", ", targets.ConvertAll(p => p.displayName).ToArray()));
+                PrintMsgL(player, "MultiplePlayers", string.Join(", ", targets.Select(p => p.displayName).ToArray()));
                 return;
             }
             var target = targets[0];
@@ -2674,6 +2694,7 @@ namespace Oxide.Plugins
 #if DEBUG
             Puts("Calling CheckPlayer from cmdChatTeleportRequest");
 #endif
+
             var err = CheckPlayer(player, configData.TPR.UsableOutOfBuildingBlocked, CanCraftTPR(player), true, "tpr");
             if (err != null)
             {
@@ -2802,6 +2823,7 @@ namespace Oxide.Plugins
             PendingRequests[target.userID] = timer.Once(configData.TPR.RequestDuration, () => { RequestTimedOut(player, target); });
             PrintMsgL(player, "Request", target.displayName);
             PrintMsgL(target, "RequestTarget", player.displayName);
+            Interface.CallHook("OnTeleportRequested", target, player);
         }
 
         [ChatCommand("tpa")]
@@ -3157,7 +3179,6 @@ namespace Oxide.Plugins
             PrintMsgL(target, "CancelledTarget", player.displayName);
         }
 
-        [ChatCommand("outpost")]
         private void cmdChatOutpost(BasePlayer player, string command, string[] args)
         {
             if(configData.Settings.OutpostEnabled)
@@ -3166,7 +3187,6 @@ namespace Oxide.Plugins
             }
         }
 
-        [ChatCommand("bandit")]
         private void cmdChatBandit(BasePlayer player, string command, string[] args)
         {
             if(configData.Settings.BanditEnabled)
@@ -3295,8 +3315,7 @@ namespace Oxide.Plugins
                         PrintMsgL(player, err);
                         if(err == "TPHostile")
                         {
-                            var pc = player as BaseCombatEntity;
-                            string pt = ((int)Math.Abs(pc.unHostileTime - Time.realtimeSinceStartup) / 60).ToString();
+                            string pt = ((int)Math.Abs(player.unHostileTime - Time.realtimeSinceStartup) / 60).ToString();
                             PrintMsgL(player, "HostileTimer", pt);
                         }
                         return;
@@ -3865,38 +3884,35 @@ namespace Oxide.Plugins
         {
             SaveLocation(player);
             teleporting.Add(player.userID);
-            if(player.net?.connection != null)
-                player.ClientRPCPlayer(null, player, "StartLoading");
 
-            StartSleeping(player);
-            player.SetParent(null, true, true);
-            player.MovePosition(position);
-
-            if(player.net?.connection != null)
+            try
+            {
+                player.EnsureDismounted();
+                player.SetParent(null, true, true);
+                if (player.IsConnected)
+                {
+                    player.StartSleeping();
+                    player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, true);
+                }
+                player.UpdatePlayerCollider(true);
+                player.UpdatePlayerRigidbody(false);
+                player.EnableServerFall(true);
+                player.MovePosition(position);
                 player.ClientRPCPlayer(null, player, "ForcePositionTo", position);
-                player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, true);
-
-            player.UpdateNetworkGroup();
-            //player.UpdatePlayerCollider(true, false);
-            player.SendNetworkUpdateImmediate(false);
-            if(player.net?.connection == null) return;
-
-            //TODO temporary for potential rust bug
-            try { player.ClearEntityQueue(null); } catch {}
-
-            player.SendFullSnapshot();
-        }
-
-        private void StartSleeping(BasePlayer player)
-        {
-            if (player.IsSleeping())
-                return;
-            player.SetPlayerFlag(BasePlayer.PlayerFlags.Sleeping, true);
-            if (!BasePlayer.sleepingPlayerList.Contains(player))
-                BasePlayer.sleepingPlayerList.Add(player);
-            player.CancelInvoke("InventoryUpdate");
-            //player.inventory.crafting.CancelAll(true);
-            //player.UpdatePlayerCollider(true, false);
+                if (player.IsConnected && !player.net.sv.visibility.IsInside(player.net.group, position))
+                {
+                    player.UpdateNetworkGroup();
+                    player.SendNetworkUpdateImmediate(false);
+                    player.ClearEntityQueue(null);
+                    player.SendFullSnapshot();
+                }
+            }
+            finally
+            {
+                player.UpdatePlayerCollider(true);
+                player.UpdatePlayerRigidbody(true);
+                player.EnableServerFall(false);
+            }
         }
         #endregion
 
@@ -4092,6 +4108,13 @@ namespace Oxide.Plugins
             if(configData.Settings.InterruptTPOnMonument == true)
             {
                 if(monname != null)
+                {
+                    return _("TooCloseToMon", player, monname);
+                }
+            }
+            if (configData.Settings.InterruptTPOnOilrig == true)
+            {
+                if (monname != null && monname.Contains("Oilrig"))
                 {
                     return _("TooCloseToMon", player, monname);
                 }
@@ -5179,7 +5202,7 @@ namespace Oxide.Plugins
         [HookMethod("SendHelpText")]
         private void SendHelpText(BasePlayer player)
         {
-            PrintMsgL(player, "<size=14>NTeleportation</size> by <color=#ce422b>RFC1920</color>\n<color=#ffd479>/sethome NAME</color> - Set home on current foundation\n<color=#ffd479>/home NAME</color> - Go to one of your homes\n<color=#ffd479>/home list</color> - List your homes\n<color=#ffd479>/town</color> - Go to town, if set\n/tpb - Go back to previous location\n/tpr PLAYER - Request teleport to PLAYER\n/tpa - Accept teleport request");
+            PrintMsgL(player, "<size=14>NTeleportation</size>\n<color=#ffd479>/sethome NAME</color> - Set home on current foundation\n<color=#ffd479>/home NAME</color> - Go to one of your homes\n<color=#ffd479>/home list</color> - List your homes\n<color=#ffd479>/town</color> - Go to town, if set\n/tpb - Go back to previous location\n/tpr PLAYER - Request teleport to PLAYER\n/tpa - Accept teleport request");
         }
     }
 }
