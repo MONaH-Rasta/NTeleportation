@@ -19,14 +19,17 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
-Fixed cooldowns
-All pay and bypass amounts can now be set to -1 to be disabled
-Alternatively, you can set `"Bypass CMD": "pay",` to `"Bypass CMD": "",`
+Fix for players setting homes inside of foundations
+Fix for error message in /TPR when target is blocked from teleporting
+- Note: Both targets must be able to teleport in order for either to use /TPR or /TPA
+Added `Show Time As Seconds Instead` (false)
+Adjusted HomeNoFoundation to work a bit better
+- Note: Strict Foundation Check still requires that you be in the center of the foundation
 */
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.5.0")]
+    [Info("NTeleportation", "nivex", "1.5.1")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -262,6 +265,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Auto Generate Bandit Location")]
             public bool AutoGenBandit { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Show Time As Seconds Instead")]
+            public bool UseSeconds { get; set; } = False;
         }
 
         public class AdminSettings
@@ -608,7 +614,7 @@ namespace Oxide.Plugins
         {
             lang.RegisterMessages(new Dictionary<string, string>
             {
-                {"Error", "Teleporting to {0} is blocked ({0})"},
+                {"ErrorTPR", "Teleporting to {0} is blocked ({1})"},
                 {"AdminTP", "You teleported to {0}!"},
                 {"AdminTPTarget", "{0} teleported to you!"},
                 {"AdminTPPlayers", "You teleported {0} to {1}!"},
@@ -1110,7 +1116,7 @@ namespace Oxide.Plugins
 
             lang.RegisterMessages(new Dictionary<string, string>
             {
-                {"Error", "Телепорт к {0} блокирован ({1})"},
+                {"ErrorTPR", "Телепорт к {0} блокирован ({1})"},
                 {"AdminTP", "Вы телепортированы к {0}!"},
                 {"AdminTPTarget", "{0} телепортировал вас!"},
                 {"AdminTPPlayers", "Вы телепортировали {0} к {1}!"},
@@ -3327,9 +3333,8 @@ namespace Oxide.Plugins
             var err2 = CheckPlayer(target, config.TPR.UsableIntoBuildingBlocked, CanCraftTPR(target), True, "tpr");
             if (err2 != null)
             {
-                string error = lang.GetMessage("Error", this, player.UserIDString);
-                string message = _(err, player);
-                PrintMsg(player, error + message);
+                string error = string.Format(lang.GetMessage("ErrorTPR", this, player.UserIDString), target.displayName, err);
+                PrintMsg(player, error);
                 return;
             }
             err = CheckTargetLocation(target, target.transform.position, config.TPR.UsableIntoBuildingBlocked, config.TPR.CupOwnerAllowOnBuildingBlocked);
@@ -4852,6 +4857,7 @@ namespace Oxide.Plugins
         #region Util
         private string FormatTime(long seconds)
         {
+            if (config.Settings.UseSeconds) return $"{seconds}s";
             var timespan = TimeSpan.FromSeconds(seconds);
             return string.Format(timespan.TotalHours >= 1 ? "{2:00}:{0:00}:{1:00}" : "{0:00}:{1:00}", timespan.Minutes, timespan.Seconds, System.Math.Floor(timespan.TotalHours));
         }
@@ -5618,7 +5624,7 @@ namespace Oxide.Plugins
             RaycastHit hit;
             var entities = new List<BuildingBlock>();
 
-            if (Physics.Raycast(position, Down, out hit, 3f, blockLayer) && hit.GetEntity().IsValid())
+            if (Physics.Raycast(position + new Vector3(0f, 0.2f, 0f), Down, out hit, 3f, blockLayer) && hit.GetEntity().IsValid())
             {
                 var entity = hit.GetEntity();
                 if (entity.PrefabName.Contains("foundation") || position.y < entity.WorldSpaceBounds().ToBounds().max.y)
@@ -5674,7 +5680,7 @@ namespace Oxide.Plugins
             RaycastHit hitinfo;
             var entities = new List<BuildingBlock>();
 
-            if (Physics.Raycast(position, Down, out hitinfo, 3f, Layers.Mask.Construction) && hitinfo.GetEntity().IsValid())
+            if (Physics.Raycast(position + new Vector3(0f, 0.2f, 0f), Down, out hitinfo, 3f, Layers.Mask.Construction) && hitinfo.GetEntity().IsValid())
             {
                 var entity = hitinfo.GetEntity();
                 if (entity.PrefabName.Contains("floor") || entity.PrefabName.Contains("foundation"))// || position.y < entity.WorldSpaceBounds().ToBounds().max.y))
@@ -5778,25 +5784,17 @@ namespace Oxide.Plugins
 
         private bool UnderneathFoundation(Vector3 position)
         {
-            // Check for foundation half-height above where home was set
-            foreach (var hit in Physics.RaycastAll(position, Up, 2f, buildingLayer))
+            RaycastHit hit;
+            if (Physics.Raycast(position + new Vector3(0f, 3f, 0f), Vector3.down, out hit, 5f, Layers.Mask.Construction, QueryTriggerInteraction.Ignore))
             {
-                if (hit.GetCollider().name.Contains("foundation"))
-                {
-                    return True;
-                }
-            }
-            // Check for foundation full-height above where home was set
-            // Since you can't see from inside via ray, start above.
-            foreach (var hit in Physics.RaycastAll(position + Up + Up + Up + Up, Down, 2f, buildingLayer))
-            {
-                if (hit.GetCollider().name.Contains("foundation"))
-                {
-                    return True;
-                }
-            }
+                var block = hit.GetEntity() as BuildingBlock;
 
-            return False;
+                if (block.IsValid() && (block.prefabID == 72949757 || block.prefabID == 3234260181))
+                {
+                    return hit.point.y > position.y;
+                }
+            }
+            return false;
         }
 
         private bool IsAllowed(BasePlayer player, string perm = null)
