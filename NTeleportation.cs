@@ -19,14 +19,14 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
-Removed a couple methods from the teleport method which could cause players to fall through the map when using /bandit or /outpost
-Fixed typos in the language file: OutpostTPDisabledConfig, OutpostTPDisabledNoLocation, OutpostTPDisabledNoLocationAutoGen, TPSettingsoutpost, SyntaxCommandOutpost
-Added new Russian translation. Credits @MONaH
+Fixed automatic TPA after using TPT to check the required nteleportation.tpt permission
+Fixed `Interrupt -> Monument` not working on some maps that are missing topology
+Fixed `Allow Cave` not working on some maps that are missing topology
 */
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.4.6")]
+    [Info("NTeleportation", "nivex", "1.4.7")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -3111,6 +3111,11 @@ namespace Oxide.Plugins
 
         private void OnTeleportRequested(BasePlayer target, BasePlayer player)
         {
+            if (!permission.UserHasPermission(target.UserIDString, PermTpT) || !permission.UserHasPermission(player.UserIDString, PermTpT))
+            {
+                return;
+            }
+
             if (config.TPT.UseClans && IsEnabled(target.UserIDString, "clan") && IsInSameClan(player.UserIDString, target.UserIDString))
             {
                 target.SendConsoleCommand("chat.say /tpa");
@@ -3210,7 +3215,7 @@ namespace Oxide.Plugins
                 target = targets[0];
             }
 
-            if (target == player && !player.IsAdmin)
+            if (target == player)
             {
 #if DEBUG
                 Puts("Debug mode - allowing self teleport.");
@@ -4672,11 +4677,6 @@ namespace Oxide.Plugins
 
         private string NearMonument(BasePlayer player)
         {
-            if (!IsNearMonument(player))
-            {
-                return null;
-            }
-
             foreach (var entry in monuments)
             {
                 if (entry.Key.ToLower().Contains("power")) continue;
@@ -4695,6 +4695,12 @@ namespace Oxide.Plugins
                     return entry.Key;
                 }
             }
+
+            if (IsMonument(player.transform.position))
+            {
+                return "monument";
+            }
+
             return null;
         }
 
@@ -4703,9 +4709,9 @@ namespace Oxide.Plugins
             return (TerrainMeta.TopologyMap.GetTopology(position) & (int)mask) != 0;
         }
 
-        public bool IsNearMonument(BasePlayer player)
+        public bool IsMonument(Vector3 position)
         {
-            return !ContainsTopology(TerrainTopology.Enum.Building, player.transform.position) && ContainsTopology(TerrainTopology.Enum.Monument, player.transform.position);
+            return !ContainsTopology(TerrainTopology.Enum.Building, position) && ContainsTopology(TerrainTopology.Enum.Monument, position);
         }
 
         public bool IsNearCave(BasePlayer player)
@@ -4715,11 +4721,6 @@ namespace Oxide.Plugins
 
         private string NearCave(BasePlayer player)
         {
-            if (!IsNearCave(player))
-            {
-                return null;
-            }
-
             foreach (var entry in caves)
             {
                 string caveName = entry.Key.Contains(":") ? entry.Key.Substring(0, entry.Key.LastIndexOf(":")) : entry.Key;
@@ -4739,6 +4740,12 @@ namespace Oxide.Plugins
 #endif
                 }
             }
+
+            if (IsNearCave(player))
+            {
+                return "cave";
+            }
+
             return null;
         }
 
