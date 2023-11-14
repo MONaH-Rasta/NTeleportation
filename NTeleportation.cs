@@ -19,6 +19,16 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
+    1.3.0:
+    Excluded power sub stations from Interrupt TP Monuments
+    Fix for caves
+    Added caves to be drawn using /spm command
+    Added Town - Allow Caves (false)
+    Added TPT - Allow Caves (false)
+    Added TPR/TPA - Allow Caves (false)
+    Added Bandit - Allow Caves (false) - This will not apply if using CompoundTeleport
+    Added Outpost - Allow Caves (false) - This will not apply if using CompoundTeleport
+
     1.2.9:
     Fix for hook call
 
@@ -159,7 +169,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.9")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.0")]
     class NTeleportation : RustPlugin
     {
         private string banditPrefab;
@@ -475,10 +485,16 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Use Teams")]
             public bool UseTeams { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Allow Cave")]
+            public bool AllowCave { get; set; } = False;
         }
 
         public class TPRSettings
         {
+            [JsonProperty(PropertyName = "Allow Cave")]
+            public bool AllowCave { get; set; } = False;
+
             [JsonProperty(PropertyName = "Allow TPB")]
             public bool AllowTPB { get; set; } = True;
 
@@ -530,6 +546,9 @@ namespace Oxide.Plugins
 
         public class TownSettings
         {
+            [JsonProperty(PropertyName = "Allow Cave")]
+            public bool AllowCave { get; set; } = False;
+
             [JsonProperty(PropertyName = "Cooldown")]
             public int Cooldown { get; set; } = 600;
 
@@ -1969,6 +1988,14 @@ namespace Oxide.Plugins
             {
                 var monPos = monument.transform.position;
                 name = monument.displayPhrase.english.TrimEnd();
+                if (string.IsNullOrEmpty(name))
+                {
+                    if (monument.name.Contains("cave"))
+                    {
+                        name = (monument.name.Contains("cave_small") ? "Small Cave" : monument.name.Contains("cave_medium") ? "Medium Cave" : "Large Cave") + ":" + RandomString();
+                    }
+                    else name = monument.name;
+                }
                 realWidth = monument.name == "OilrigAI" ? 100f : monument.name == "OilrigAI2" ? 200f : 0f;
 #if DEBUG
                 Puts($"Found {name}, extents {monument.Bounds.extents}");
@@ -4306,23 +4333,18 @@ namespace Oxide.Plugins
                 player.SendConsoleCommand("ddraw.text", 30f, Color.blue, monument.Value.Position, name);
             }
 
-            /*var dict = new SortedDictionary<string, Vector3>();
-
-            foreach (var monument in UnityEngine.Object.FindObjectsOfType<MonumentInfo>())
+            foreach (var cave in caves)
             {
-                if (string.IsNullOrEmpty(monument.displayPhrase.english)) continue;
-                dict[monument.displayPhrase.english] = monument.Bounds.extents;
+                string name = cave.Key.Contains(":") ? cave.Key.Substring(0, cave.Key.LastIndexOf(":")) : cave.Key.TrimEnd();
+                float realdistance = cave.Key.Contains("Small") ? config.Settings.CaveDistanceSmall : cave.Key.Contains("Medium") ? config.Settings.CaveDistanceMedium : config.Settings.CaveDistanceLarge;
+                realdistance += 50f;
+
+                player.SendConsoleCommand("ddraw.sphere", 30f, Color.black, cave.Value, realdistance);
+                player.SendConsoleCommand("ddraw.text", 30f, Color.cyan, cave.Value, name);
             }
+        }
 
-            dict.OrderBy(entry => entry.Key);
-
-            foreach(var entry in dict)
-            {
-                Puts("{0} : {1}", entry.Key, entry.Value);
-            }*/
-                        }
-
-                        private void CommandImportHomes(IPlayer p, string command, string[] args)
+        private void CommandImportHomes(IPlayer p, string command, string[] args)
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
@@ -4579,6 +4601,8 @@ namespace Oxide.Plugins
         {
             foreach (var entry in monuments)
             {
+                if (entry.Key.ToLower().Contains("power")) continue;
+
                 var pos = entry.Value.Position;
                 pos.y = player.transform.position.y;
                 float dist = (player.transform.position - pos).magnitude;
@@ -4596,52 +4620,19 @@ namespace Oxide.Plugins
             return null;
         }
 
-        private bool IsInCave(Vector3 target)
-        {
-            foreach(var cave in caves)
-            {
-                float distance = cave.Key.Contains("Small") ? config.Settings.CaveDistanceSmall : cave.Key.Contains("Medium") ? config.Settings.CaveDistanceMedium : config.Settings.CaveDistanceLarge;
-
-                return Vector3Ex.Distance2D(target, cave.Value) < distance;
-            }
-
-            return false;
-        }
-
         private string NearCave(BasePlayer player)
         {
-            var pos = player.transform.position;
-            var poss = pos.ToString();
-
             foreach (var entry in caves)
             {
-                var cavename = entry.Key;
-                float realdistance = 0f;
+                string caveName = entry.Key.Contains(":") ? entry.Key.Substring(0, entry.Key.LastIndexOf(":")) : entry.Key;
+                float realdistance = entry.Key.Contains("Small") ? config.Settings.CaveDistanceSmall : entry.Key.Contains("Medium") ? config.Settings.CaveDistanceMedium : config.Settings.CaveDistanceLarge;
 
-                if (cavename.Contains("Small"))
-                {
-                    realdistance = config.Settings.CaveDistanceSmall;
-                }
-                else if (cavename.Contains("Large"))
-                {
-                    realdistance = config.Settings.CaveDistanceLarge;
-                }
-                else if (cavename.Contains("Medium"))
-                {
-                    realdistance = config.Settings.CaveDistanceMedium;
-                }
-
-                var cavevector = entry.Value;
-                cavevector.y = pos.y;
-                var cpos = cavevector.ToString();
-                float dist = (pos - cavevector).magnitude;
-
-                if (dist < realdistance + 50f)
+                if (Vector3Ex.Distance2D(player.transform.position, entry.Value) < realdistance + 50f)
                 {
 #if DEBUG
-                    Puts($"NearCave: {cavename} nearby.");
+                    Puts($"NearCave: {caveName} nearby.");
 #endif
-                    return cavename;
+                    return caveName;
                 }
                 else
                 {
@@ -4682,14 +4673,25 @@ namespace Oxide.Plugins
 #endif
             switch (mode)
             {
+                case "tpt":
+                    allowcave = config.TPT.AllowCave;
+                    break;
                 case "home":
                     allowcave = config.Home.AllowCave;
                     break;
                 case "tpa":
                 case "tpr":
+                    allowcave = config.TPR.AllowCave;
+                    break;
                 case "town":
+                    allowcave = config.Town.AllowCave;
+                    break;
                 case "outpost":
+                    allowcave = config.Outpost.AllowCave;
+                    break;
                 case "bandit":
+                    allowcave = config.Bandit.AllowCave;
+                    break;
                 default:
 #if DEBUG
                     Puts("Skipping cave check...");
