@@ -20,7 +20,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.6.0")]
+    [Info("NTeleportation", "nivex", "1.6.1")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -4452,6 +4452,7 @@ namespace Oxide.Plugins
             }
             finally
             {
+                if (!IsInvisible(player))
                 player.ForceUpdateTriggers(); // 1.1.4 exploit fix for looting sleepers in safe zones
             }
 
