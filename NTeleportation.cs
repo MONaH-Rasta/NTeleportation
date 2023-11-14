@@ -19,6 +19,12 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
+    1.2.7:
+    Removed teleport protection
+    Removed conversion from old to new config
+    Cleaned up the config
+    Commands that are not enabled in the config will no longer be registered
+
     1.2.6:
     Bandit command will be disabled if the coordinates are invalid
     Outpost command will be disabled if the coordinates are invalid
@@ -143,7 +149,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.6")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.7")]
     class NTeleportation : RustPlugin
     {
         private string banditPrefab;
@@ -231,323 +237,323 @@ namespace Oxide.Plugins
 
         private static Configuration config;
 
+        public class InterruptSettings
+        {
+            [JsonProperty(PropertyName = "Above Water")]
+            public bool AboveWater { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Balloon")]
+            public bool Balloon { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Cargo Ship")]
+            public bool Cargo { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Cold")]
+            public bool Cold { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Excavator")]
+            public bool Excavator { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Hot")]
+            public bool Hot { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Hostile")]
+            public bool Hostile { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Hurt")]
+            public bool Hurt { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Lift")]
+            public bool Lift { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Monument")]
+            public bool Monument { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Mounted")]
+            public bool Mounted { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Oil Rig")]
+            public bool Oilrig { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Safe Zone")]
+            public bool Safe { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Swimming")]
+            public bool Swimming { get; set; } = False;
+        }
+
+        public class PluginSettings
+        {
+            [JsonProperty(PropertyName = "Interrupt TP")]
+            public InterruptSettings Interrupt { get; set; } = new InterruptSettings();
+
+            [JsonProperty(PropertyName = "Block Teleport (NoEscape)")]
+            public bool BlockNoEscape { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Block Teleport (ZoneManager)")]
+            public bool BlockZoneFlag { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Chat Name")]
+            public string ChatName { get; set; } = "<color=red>Teleportation</color>: ";
+
+            [JsonProperty(PropertyName = "Check Boundaries On Teleport X Y Z")]
+            public bool CheckBoundaries { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Draw Sphere On Set Home")]
+            public bool DrawHomeSphere { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Homes Enabled")]
+            public bool HomesEnabled { get; set; } = True;
+
+            [JsonProperty(PropertyName = "TPR Enabled")]
+            public bool TPREnabled { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Town Enabled")]
+            public bool TownEnabled { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Outpost Enabled")]
+            public bool OutpostEnabled { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Bandit Enabled")]
+            public bool BanditEnabled { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Strict Foundation Check")]
+            public bool StrictFoundationCheck { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Cave Distance Small")]
+            public float CaveDistanceSmall { get; set; } = 50f;
+
+            [JsonProperty(PropertyName = "Cave Distance Medium")]
+            public float CaveDistanceMedium { get; set; } = 70f;
+
+            [JsonProperty(PropertyName = "Cave Distance Large")]
+            public float CaveDistanceLarge { get; set; } = 110f;
+
+            [JsonProperty(PropertyName = "Default Monument Size")]
+            public float DefaultMonumentSize { get; set; } = 50f;
+
+            [JsonProperty(PropertyName = "Minimum Temp")]
+            public float MinimumTemp { get; set; } = 0f;
+
+            [JsonProperty(PropertyName = "Maximum Temp")]
+            public float MaximumTemp { get; set; } = 40f;
+
+            [JsonProperty(PropertyName = "Blocked Items", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public Dictionary<string, string> BlockedItems { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            [JsonProperty(PropertyName = "Bypass CMD")]
+            public string BypassCMD { get; set; } = "pay";
+
+            [JsonProperty(PropertyName = "Use Economics")]
+            public bool UseEconomics { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Use Server Rewards")]
+            public bool UseServerRewards { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Wipe On Upgrade Or Change")]
+            public bool WipeOnUpgradeOrChange { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Auto Generate Outpost Location")]
+            public bool AutoGenOutpost { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Auto Generate Bandit Location")]
+            public bool AutoGenBandit { get; set; } = False;
+        }
+
+        public class AdminSettings
+        {
+            [JsonProperty(PropertyName = "Announce Teleport To Target")]
+            public bool AnnounceTeleportToTarget { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Usable By Admins")]
+            public bool UseableByAdmins { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Usable By Moderators")]
+            public bool UseableByModerators { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Location Radius")]
+            public int LocationRadius { get; set; } = 25;
+
+            [JsonProperty(PropertyName = "Teleport Near Default Distance")]
+            public int TeleportNearDefaultDistance { get; set; } = 30;
+        }
+
+        public class HomesSettings
+        {
+            [JsonProperty(PropertyName = "Homes Limit")]
+            public int HomesLimit { get; set; } = 2;
+
+            [JsonProperty(PropertyName = "VIP Homes Limits", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public Dictionary<string, int> VIPHomesLimits { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
+
+            [JsonProperty(PropertyName = "Cooldown")]
+            public int Cooldown { get; set; } = 600;
+
+            [JsonProperty(PropertyName = "Countdown")]
+            public int Countdown { get; set; } = 15;
+
+            [JsonProperty(PropertyName = "Daily Limit")]
+            public int DailyLimit { get; set; } = 5;
+
+            [JsonProperty(PropertyName = "VIP Daily Limits", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public Dictionary<string, int> VIPDailyLimits { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
+
+            [JsonProperty(PropertyName = "VIP Cooldowns", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public Dictionary<string, int> VIPCooldowns { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
+
+            [JsonProperty(PropertyName = "VIP Countdowns", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public Dictionary<string, int> VIPCountdowns { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
+
+            [JsonProperty(PropertyName = "Location Radius")]
+            public int LocationRadius { get; set; } = 25;
+
+            [JsonProperty(PropertyName = "Force On Top Of Foundation")]
+            public bool ForceOnTopOfFoundation { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Check Foundation For Owner")]
+            public bool CheckFoundationForOwner { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Use Friends")]
+            public bool UseFriends { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Use Clans")]
+            public bool UseClans { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Use Teams")]
+            public bool UseTeams { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Usable Out Of Building Blocked")]
+            public bool UsableOutOfBuildingBlocked { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Usable Into Building Blocked")]
+            public bool UsableIntoBuildingBlocked { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Allow Cupboard Owner When Building Blocked")]
+            public bool CupOwnerAllowOnBuildingBlocked { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Allow Iceberg")]
+            public bool AllowIceberg { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Allow Cave")]
+            public bool AllowCave { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Allow Crafting")]
+            public bool AllowCraft { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Allow Above Foundation")]
+            public bool AllowAboveFoundation { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Check If Home Is Valid On Listhomes")]
+            public bool CheckValidOnList { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Pay")]
+            public int Pay { get; set; } = 0;
+
+            [JsonProperty(PropertyName = "Bypass")]
+            public int Bypass { get; set; } = 0;
+        }
+
+        public class TPTSettings
+        {
+            [JsonProperty(PropertyName = "Use Friends")]
+            public bool UseFriends { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Use Clans")]
+            public bool UseClans { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Use Teams")]
+            public bool UseTeams { get; set; } = True;
+        }
+
+        public class TPRSettings
+        {
+            [JsonProperty(PropertyName = "Allow TPB")]
+            public bool AllowTPB { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Cooldown")]
+            public int Cooldown { get; set; } = 600;
+
+            [JsonProperty(PropertyName = "Countdown")]
+            public int Countdown { get; set; } = 15;
+
+            [JsonProperty(PropertyName = "Daily Limit")]
+            public int DailyLimit { get; set; } = 5;
+
+            [JsonProperty(PropertyName = "VIP Daily Limits", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public Dictionary<string, int> VIPDailyLimits { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
+
+            [JsonProperty(PropertyName = "VIP Cooldowns", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public Dictionary<string, int> VIPCooldowns { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
+
+            [JsonProperty(PropertyName = "VIP Countdowns", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public Dictionary<string, int> VIPCountdowns { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
+
+            [JsonProperty(PropertyName = "Request Duration")]
+            public int RequestDuration { get; set; } = 30;
+
+            [JsonProperty(PropertyName = "Offset TPR Target")]
+            public bool OffsetTPRTarget { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Block TPA On Ceiling")]
+            public bool BlockTPAOnCeiling { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Usable Out Of Building Blocked")]
+            public bool UsableOutOfBuildingBlocked { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Usable Into Building Blocked")]
+            public bool UsableIntoBuildingBlocked { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Allow Cupboard Owner When Building Blocked")]
+            public bool CupOwnerAllowOnBuildingBlocked { get; set; } = True;
+
+            [JsonProperty(PropertyName = "Allow Crafting")]
+            public bool AllowCraft { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Pay")]
+            public int Pay { get; set; } = 0;
+
+            [JsonProperty(PropertyName = "Bypass")]
+            public int Bypass { get; set; } = 0;
+        }
+
+        public class TownSettings
+        {
+            [JsonProperty(PropertyName = "Cooldown")]
+            public int Cooldown { get; set; } = 600;
+
+            [JsonProperty(PropertyName = "Countdown")]
+            public int Countdown { get; set; } = 15;
+
+            [JsonProperty(PropertyName = "Daily Limit")]
+            public int DailyLimit { get; set; } = 5;
+
+            [JsonProperty(PropertyName = "VIP Daily Limits", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public Dictionary<string, int> VIPDailyLimits { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
+
+            [JsonProperty(PropertyName = "VIP Cooldowns", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public Dictionary<string, int> VIPCooldowns { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
+
+            [JsonProperty(PropertyName = "VIP Countdowns", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public Dictionary<string, int> VIPCountdowns { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
+
+            [JsonProperty(PropertyName = "Location")]
+            public Vector3 Location { get; set; } = Vector3.zero;
+
+            [JsonProperty(PropertyName = "Usable Out Of Building Blocked")]
+            public bool UsableOutOfBuildingBlocked { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Allow Crafting")]
+            public bool AllowCraft { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Pay")]
+            public int Pay { get; set; } = 0;
+
+            [JsonProperty(PropertyName = "Bypass")]
+            public int Bypass { get; set; } = 0;
+        }
+
         private class Configuration
         {
-            public class InterruptSettings
-            {
-                [JsonProperty(PropertyName = "Above Water")]
-                public bool AboveWater { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Balloon")]
-                public bool Balloon { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Cargo Ship")]
-                public bool Cargo { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Cold")]
-                public bool Cold { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Excavator")]
-                public bool Excavator { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Hot")]
-                public bool Hot { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Hostile")]
-                public bool Hostile { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Hurt")]
-                public bool Hurt { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Lift")]
-                public bool Lift { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Monument")]
-                public bool Monument { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Mounted")]
-                public bool Mounted { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Oil Rig")]
-                public bool Oilrig { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Safe Zone")]
-                public bool Safe { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Swimming")]
-                public bool Swimming { get; set; } = False;
-            }
-
-            public class PluginSettings
-            {
-                [JsonProperty(PropertyName = "Interrupt TP")]
-                public InterruptSettings Interrupt { get; set; } = new InterruptSettings();
-
-                [JsonProperty(PropertyName = "Block Teleport (NoEscape)")]
-                public bool BlockNoEscape { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Block Teleport (ZoneManager)")]
-                public bool BlockZoneFlag { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Chat Name")]
-                public string ChatName { get; set; } = "<color=red>Teleportation</color>: ";
-
-                [JsonProperty(PropertyName = "Check Boundaries On Teleport X Y Z")]
-                public bool CheckBoundaries { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Draw Sphere On Set Home")]
-                public bool DrawHomeSphere { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Homes Enabled")]
-                public bool HomesEnabled { get; set; } = True;
-
-                [JsonProperty(PropertyName = "TPR Enabled")]
-                public bool TPREnabled { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Town Enabled")]
-                public bool TownEnabled { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Outpost Enabled")]
-                public bool OutpostEnabled { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Bandit Enabled")]
-                public bool BanditEnabled { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Strict Foundation Check")]
-                public bool StrictFoundationCheck { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Cave Distance Small")]
-                public float CaveDistanceSmall { get; set; } = 50f;
-
-                [JsonProperty(PropertyName = "Cave Distance Medium")]
-                public float CaveDistanceMedium { get; set; } = 70f;
-
-                [JsonProperty(PropertyName = "Cave Distance Large")]
-                public float CaveDistanceLarge { get; set; } = 110f;
-
-                [JsonProperty(PropertyName = "Default Monument Size")]
-                public float DefaultMonumentSize { get; set; } = 50f;
-
-                [JsonProperty(PropertyName = "Minimum Temp")]
-                public float MinimumTemp { get; set; } = 0f;
-
-                [JsonProperty(PropertyName = "Maximum Temp")]
-                public float MaximumTemp { get; set; } = 40f;
-
-                [JsonProperty(PropertyName = "Blocked Items", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-                public Dictionary<string, string> BlockedItems { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-                [JsonProperty(PropertyName = "Bypass CMD")]
-                public string BypassCMD { get; set; } = "pay";
-
-                [JsonProperty(PropertyName = "Use Economics")]
-                public bool UseEconomics { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Use Server Rewards")]
-                public bool UseServerRewards { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Wipe On Upgrade Or Change")]
-                public bool WipeOnUpgradeOrChange { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Auto Generate Outpost Location")]
-                public bool AutoGenOutpost { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Auto Generate Bandit Location")]
-                public bool AutoGenBandit { get; set; } = False;
-            }
-
-            public class AdminSettings
-            {
-                [JsonProperty(PropertyName = "Announce Teleport To Target")]
-                public bool AnnounceTeleportToTarget { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Usable By Admins")]
-                public bool UseableByAdmins { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Usable By Moderators")]
-                public bool UseableByModerators { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Location Radius")]
-                public int LocationRadius { get; set; } = 25;
-
-                [JsonProperty(PropertyName = "Teleport Near Default Distance")]
-                public int TeleportNearDefaultDistance { get; set; } = 30;
-            }
-
-            public class HomesSettings
-            {
-                [JsonProperty(PropertyName = "Homes Limit")]
-                public int HomesLimit { get; set; } = 2;
-
-                [JsonProperty(PropertyName = "VIP Homes Limits", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-                public Dictionary<string, int> VIPHomesLimits { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
-
-                [JsonProperty(PropertyName = "Cooldown")]
-                public int Cooldown { get; set; } = 600;
-
-                [JsonProperty(PropertyName = "Countdown")]
-                public int Countdown { get; set; } = 15;
-
-                [JsonProperty(PropertyName = "Daily Limit")]
-                public int DailyLimit { get; set; } = 5;
-
-                [JsonProperty(PropertyName = "VIP Daily Limits", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-                public Dictionary<string, int> VIPDailyLimits { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
-
-                [JsonProperty(PropertyName = "VIP Cooldowns", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-                public Dictionary<string, int> VIPCooldowns { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
-
-                [JsonProperty(PropertyName = "VIP Countdowns", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-                public Dictionary<string, int> VIPCountdowns { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
-
-                [JsonProperty(PropertyName = "Location Radius")]
-                public int LocationRadius { get; set; } = 25;
-
-                [JsonProperty(PropertyName = "Force On Top Of Foundation")]
-                public bool ForceOnTopOfFoundation { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Check Foundation For Owner")]
-                public bool CheckFoundationForOwner { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Use Friends")]
-                public bool UseFriends { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Use Clans")]
-                public bool UseClans { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Use Teams")]
-                public bool UseTeams { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Usable Out Of Building Blocked")]
-                public bool UsableOutOfBuildingBlocked { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Usable Into Building Blocked")]
-                public bool UsableIntoBuildingBlocked { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Allow Cupboard Owner When Building Blocked")]
-                public bool CupOwnerAllowOnBuildingBlocked { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Allow Iceberg")]
-                public bool AllowIceberg { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Allow Cave")]
-                public bool AllowCave { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Allow Crafting")]
-                public bool AllowCraft { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Allow Above Foundation")]
-                public bool AllowAboveFoundation { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Check If Home Is Valid On Listhomes")]
-                public bool CheckValidOnList { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Pay")]
-                public int Pay { get; set; } = 0;
-
-                [JsonProperty(PropertyName = "Bypass")]
-                public int Bypass { get; set; } = 0;
-            }
-
-            public class TPTSettings
-            {
-                [JsonProperty(PropertyName = "Use Friends")]
-                public bool UseFriends { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Use Clans")]
-                public bool UseClans { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Use Teams")]
-                public bool UseTeams { get; set; } = True;
-            }
-
-            public class TPRSettings
-            {
-                [JsonProperty(PropertyName = "Allow TPB")]
-                public bool AllowTPB { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Cooldown")]
-                public int Cooldown { get; set; } = 600;
-
-                [JsonProperty(PropertyName = "Countdown")]
-                public int Countdown { get; set; } = 15;
-
-                [JsonProperty(PropertyName = "Daily Limit")]
-                public int DailyLimit { get; set; } = 5;
-
-                [JsonProperty(PropertyName = "VIP Daily Limits", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-                public Dictionary<string, int> VIPDailyLimits { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
-
-                [JsonProperty(PropertyName = "VIP Cooldowns", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-                public Dictionary<string, int> VIPCooldowns { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
-
-                [JsonProperty(PropertyName = "VIP Countdowns", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-                public Dictionary<string, int> VIPCountdowns { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
-
-                [JsonProperty(PropertyName = "Request Duration")]
-                public int RequestDuration { get; set; } = 30;
-
-                [JsonProperty(PropertyName = "Offset TPR Target")]
-                public bool OffsetTPRTarget { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Block TPA On Ceiling")]
-                public bool BlockTPAOnCeiling { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Usable Out Of Building Blocked")]
-                public bool UsableOutOfBuildingBlocked { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Usable Into Building Blocked")]
-                public bool UsableIntoBuildingBlocked { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Allow Cupboard Owner When Building Blocked")]
-                public bool CupOwnerAllowOnBuildingBlocked { get; set; } = True;
-
-                [JsonProperty(PropertyName = "Allow Crafting")]
-                public bool AllowCraft { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Pay")]
-                public int Pay { get; set; } = 0;
-
-                [JsonProperty(PropertyName = "Bypass")]
-                public int Bypass { get; set; } = 0;
-            }
-
-            public class TownSettings
-            {
-                [JsonProperty(PropertyName = "Cooldown")]
-                public int Cooldown { get; set; } = 600;
-
-                [JsonProperty(PropertyName = "Countdown")]
-                public int Countdown { get; set; } = 15;
-
-                [JsonProperty(PropertyName = "Daily Limit")]
-                public int DailyLimit { get; set; } = 5;
-
-                [JsonProperty(PropertyName = "VIP Daily Limits", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-                public Dictionary<string, int> VIPDailyLimits { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
-
-                [JsonProperty(PropertyName = "VIP Cooldowns", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-                public Dictionary<string, int> VIPCooldowns { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
-
-                [JsonProperty(PropertyName = "VIP Countdowns", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-                public Dictionary<string, int> VIPCountdowns { get; set; } = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
-
-                [JsonProperty(PropertyName = "Location")]
-                public Vector3 Location { get; set; } = Vector3.zero;
-
-                [JsonProperty(PropertyName = "Usable Out Of Building Blocked")]
-                public bool UsableOutOfBuildingBlocked { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Allow Crafting")]
-                public bool AllowCraft { get; set; } = False;
-
-                [JsonProperty(PropertyName = "Pay")]
-                public int Pay { get; set; } = 0;
-
-                [JsonProperty(PropertyName = "Bypass")]
-                public int Bypass { get; set; } = 0;
-            }
-
             [JsonProperty(PropertyName = "Settings")]
             public PluginSettings Settings = new PluginSettings();
 
@@ -575,63 +581,21 @@ namespace Oxide.Plugins
             [JsonProperty(PropertyName = "Version")]
             public VersionNumber Version = new VersionNumber(1, 2, 3);
 
-            public string ToJson() => JsonConvert.SerializeObject(this);
+            //public string ToJson() => JsonConvert.SerializeObject(this);
 
-            public Dictionary<string, object> ToDictionary() => JsonConvert.DeserializeObject<Dictionary<string, object>>(ToJson());
+            //public Dictionary<string, object> ToDictionary() => JsonConvert.DeserializeObject<Dictionary<string, object>>(ToJson());
         }
 
         protected override void LoadConfig()
         {
             base.LoadConfig();
-            try
-            {
-                dataConvert = GetFile(nameof(NTeleportation) + "Converted");
-                convertData = dataConvert.ReadObject<ConvertData>();
-            }
-            catch { }
-            if (convertData == null) convertData = new ConvertData();
-
-            try
-            {
-                dataDisabled = GetFile(nameof(NTeleportation) + "DisabledCommands");
-                disabledData = dataDisabled.ReadObject<DisabledData>();
-            }
-            catch { }
-            if (disabledData == null) disabledData = new DisabledData();
 
             try
             {
                 Config.Settings.ReferenceLoopHandling = ReferenceLoopHandling.Ignore;
                 Config.Settings.Converters = new JsonConverter[] { new UnityVector3Converter() };
-                if (!convertData.Converted_1_2_0)
-                {
-                    try
-                    {
-                        ConfigurationConverter();
-                    }
-                    catch { }
-                }
                 config = Config.ReadObject<Configuration>();
                 if (config == null) throw new Exception();
-
-                var oldKeys = Config.ToDictionary(x => x.Key, x => x.Value).Keys;
-                var newKeys = config.ToDictionary().Keys;
-
-                foreach (string key in newKeys)
-                {
-                    if (!oldKeys.Contains(key))
-                    {
-                        PrintWarning("Config setting was added this update: {0}", key);
-                    }
-                }
-
-                foreach (string key in oldKeys)
-                {
-                    if (!newKeys.Contains(key))
-                    {
-                        PrintWarning("Config setting was removed this update: {0}", key);
-                    }
-                }
             }
             catch
             {
@@ -639,33 +603,7 @@ namespace Oxide.Plugins
                 LoadDefaultConfig();
             }
 
-            if (config.Settings.MaximumTemp < 1)
-            {
-                config.Settings.MaximumTemp = 40f;
-            }
-
-            if (config.Settings.DefaultMonumentSize < 1)
-            {
-                config.Settings.DefaultMonumentSize = 50f;
-            }
-
-            if (config.Settings.CaveDistanceSmall < 1)
-            {
-                config.Settings.CaveDistanceSmall = 40f;
-            }
-
-            if (config.Settings.CaveDistanceMedium < 1)
-            {
-                config.Settings.CaveDistanceMedium = 60f;
-            }
-
-            if (config.Settings.CaveDistanceLarge < 1)
-            {
-                config.Settings.CaveDistanceLarge = 100f;
-            }
-
             config.Version = Version;
-
             SaveConfig();
         }
 
@@ -675,16 +613,6 @@ namespace Oxide.Plugins
 
         #endregion
 
-        class ConvertData
-        {
-            [JsonProperty("Last version config was converted")]
-            public bool Converted_1_2_0 { get; set; }
-
-            public ConvertData() { }
-        }
-
-        ConvertData convertData = new ConvertData();
-
         class DisabledData
         {
             [JsonProperty("List of disabled commands")]
@@ -693,7 +621,7 @@ namespace Oxide.Plugins
             public DisabledData() { }
         }
 
-        DisabledData disabledData = new DisabledData();
+        DisabledData DisabledTPT = new DisabledData();
 
         class AdminData
         {
@@ -1646,6 +1574,8 @@ namespace Oxide.Plugins
             Outpost = dataOutpost.ReadObject<Dictionary<ulong, TeleportData>>();
             dataBandit = GetFile(nameof(NTeleportation) + "Bandit");
             Bandit = dataBandit.ReadObject<Dictionary<ulong, TeleportData>>();
+            dataDisabled = GetFile(nameof(NTeleportation) + "DisabledCommands");
+            DisabledTPT = dataDisabled.ReadObject<DisabledData>();
             permission.RegisterPermission(PermDeleteHome, this);
             permission.RegisterPermission(PermHome, this);
             permission.RegisterPermission(PermHomeHomes, this);
@@ -1738,28 +1668,33 @@ namespace Oxide.Plugins
             {
                 if (CompoundTeleport == null)
                 {
-                    AddCovalenceCommand("outpost", nameof(CommandOutpost));
-                    AddCovalenceCommand("bandit", nameof(CommandBandit));
+                    if (config.Settings.OutpostEnabled) AddCovalenceCommand("outpost", nameof(CommandOutpost));
+                    if (config.Settings.BanditEnabled) AddCovalenceCommand("bandit", nameof(CommandBandit));
                 }
             });
 
+            if (config.Settings.TownEnabled) AddCovalenceCommand("town", nameof(CommandTown));
+            if (config.Settings.TPREnabled) AddCovalenceCommand("tpr", nameof(CommandTeleportRequest));
+            if (config.Settings.HomesEnabled)
+            {
+                AddCovalenceCommand("home", nameof(CommandHome));
+                AddCovalenceCommand("sethome", nameof(CommandSetHome));
+                AddCovalenceCommand("listhomes", nameof(CommandListHomes));
+                AddCovalenceCommand("removehome", nameof(CommandRemoveHome));
+                AddCovalenceCommand("radiushome", nameof(CommandHomeRadius));
+                AddCovalenceCommand("deletehome", nameof(CommandHomeDelete));
+                AddCovalenceCommand("tphome", nameof(CommandHomeAdminTP));
+                AddCovalenceCommand("homehomes", nameof(CommandHomeHomes));
+            }
+
             AddCovalenceCommand("tnt", nameof(CommandToggle));
             AddCovalenceCommand("tp", nameof(CommandTeleport));
-            AddCovalenceCommand("home", nameof(CommandHome));
-            AddCovalenceCommand("sethome", nameof(CommandSetHome));
-            AddCovalenceCommand("listhomes", nameof(CommandListHomes));
             AddCovalenceCommand("tpn", nameof(CommandTeleportNear));
             AddCovalenceCommand("tpl", nameof(CommandTeleportLocation));
             AddCovalenceCommand("tpsave", nameof(CommandSaveTeleportLocation));
             AddCovalenceCommand("tpremove", nameof(CommandRemoveTeleportLocation));
             AddCovalenceCommand("tpb", nameof(CommandTeleportBack));
-            AddCovalenceCommand("removehome", nameof(CommandRemoveHome));
-            AddCovalenceCommand("radiushome", nameof(CommandHomeRadius));
-            AddCovalenceCommand("deletehome", nameof(CommandHomeDelete));
-            AddCovalenceCommand("tphome", nameof(CommandHomeAdminTP));
-            AddCovalenceCommand("homehomes", nameof(CommandHomeHomes));
             AddCovalenceCommand("tpt", nameof(CommandTeleportTeam));
-            AddCovalenceCommand("tpr", nameof(CommandTeleportRequest));
             AddCovalenceCommand("tpa", nameof(CommandTeleportAccept));
             AddCovalenceCommand("wipehomes", nameof(CommandWipeHomes));
             AddCovalenceCommand("tphelp", nameof(CommandTeleportHelp));
@@ -1768,7 +1703,6 @@ namespace Oxide.Plugins
             AddCovalenceCommand("teleport.toplayer", nameof(CommandTeleportII));
             AddCovalenceCommand("teleport.topos", nameof(CommandTeleportII));
             AddCovalenceCommand("teleport.importhomes", nameof(CommandImportHomes));
-            AddCovalenceCommand("town", nameof(CommandTown));
             AddCovalenceCommand("spm", nameof(CommandSphereMonuments));
             FindMonuments();  // 1.2.2 location moved from Loaded() to fix outpost and bandit location not being set after a wipe
         }
@@ -2145,17 +2079,17 @@ namespace Oxide.Plugins
 
             if (arg == command.ToLower()) return;
 
-            if (!disabledData.DisabledCommands.Contains(arg))
-                disabledData.DisabledCommands.Add(arg);
-            else disabledData.DisabledCommands.Remove(arg);
+            if (!DisabledTPT.DisabledCommands.Contains(arg))
+                DisabledTPT.DisabledCommands.Add(arg);
+            else DisabledTPT.DisabledCommands.Remove(arg);
 
-            dataDisabled.WriteObject(disabledData);
-            p.Reply("{0} {1}", null, disabledData.DisabledCommands.Contains(arg) ? "Disabled:" : "Enabled:", arg);
+            dataDisabled.WriteObject(DisabledTPT);
+            p.Reply("{0} {1}", null, DisabledTPT.DisabledCommands.Contains(arg) ? "Disabled:" : "Enabled:", arg);
         }
 
         private void CommandTeleport(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTp)) return;
             BasePlayer target;
@@ -2249,7 +2183,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportNear(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpN)) return;
             switch (args.Length)
@@ -2289,7 +2223,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportLocation(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpL)) return;
             AdminData adminData;
@@ -2312,11 +2246,6 @@ namespace Oxide.Plugins
                         PrintMsgL(player, "LocationNotFound");
                         return;
                     }
-                    if (!player.IsAdmin && !isValidLoc(loc))
-                    {
-                        player.ChatMessage("Location is under the world! Aborting...");
-                        return;
-                    }
                     Teleport(player, loc);
                     PrintMsgL(player, "AdminTPLocation", args[0]);
                     break;
@@ -2326,23 +2255,9 @@ namespace Oxide.Plugins
             }
         }
 
-        bool isValidLoc(Vector3 target)
-        {
-            if (IsInCave(target)) return true;
-
-            float y = TerrainMeta.HeightMap.GetHeight(target);
-
-            if (target.y < y)
-            {
-                return False;
-            }
-
-            return True;
-        }
-
         private void CommandSaveTeleportLocation(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpSave)) return;
             if (args.Length != 1)
@@ -2375,7 +2290,7 @@ namespace Oxide.Plugins
 
         private void CommandRemoveTeleportLocation(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpRemove)) return;
             if (args.Length != 1)
@@ -2400,7 +2315,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportBack(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpB)) return;
             if (args.Length != 0)
@@ -2415,12 +2330,6 @@ namespace Oxide.Plugins
                 return;
             }
 
-            if (!player.IsAdmin && !isValidLoc(adminData.PreviousLocation))
-            {
-                player.ChatMessage("Location is under the world! Aborting...");
-                return;
-            }
-
             Teleport(player, adminData.PreviousLocation);
             adminData.PreviousLocation = Zero;
             changedAdmin = True;
@@ -2430,7 +2339,7 @@ namespace Oxide.Plugins
 
         private void CommandSetHome(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowed(player, PermHome)) return;
             if (!config.Settings.HomesEnabled) { p.Reply("Homes are not enabled in the config."); return; }
@@ -2514,7 +2423,7 @@ namespace Oxide.Plugins
 
         private void CommandRemoveHome(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             if (!config.Settings.HomesEnabled) { p.Reply("Homes are not enabled in the config."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowed(player, PermHome)) return;
@@ -2540,7 +2449,7 @@ namespace Oxide.Plugins
 
         private void CommandHome(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             if (!config.Settings.HomesEnabled) { p.Reply("Homes are not enabled in the config."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowed(player, PermHome)) return;
@@ -2584,7 +2493,7 @@ namespace Oxide.Plugins
 
         private void CommandHomeRadius(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermRadiusHome)) return;
             float radius;
@@ -2623,7 +2532,7 @@ namespace Oxide.Plugins
 
         private void CommandHomeDelete(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermDeleteHome)) return;
             if (args.Length != 2)
@@ -2645,7 +2554,7 @@ namespace Oxide.Plugins
 
         private void CommandHomeAdminTP(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpHome)) return;
             if (args.Length != 2)
@@ -2660,11 +2569,6 @@ namespace Oxide.Plugins
             if (!Home.TryGetValue(userId, out targetHome) || !targetHome.Locations.TryGetValue(args[1], out location))
             {
                 PrintMsgL(player, "HomeNotFound");
-                return;
-            }
-            if (!player.IsAdmin && !isValidLoc(location))
-            {
-                player.ChatMessage("This home is under the world! Aborting...");
                 return;
             }
 
@@ -2738,7 +2642,7 @@ namespace Oxide.Plugins
 
         private void cmdChatHomeTP(BasePlayer player, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { player.ChatMessage("Disabled command."); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { player.ChatMessage("Disabled command."); return; }
             if (!IsAllowed(player, PermHome)) return;
             bool paidmoney = False;
             if (!config.Settings.HomesEnabled) { player.ChatMessage("Homes are not enabled in the config."); return; }
@@ -2938,11 +2842,6 @@ namespace Oxide.Plugins
                         }
                         return;
                     }
-                    if (!player.IsAdmin && !isValidLoc(location))
-                    {
-                        player.ChatMessage("This home is under the world! Aborting...");
-                        return;
-                    }
 
                     if (UseEconomy())
                     {
@@ -2975,7 +2874,7 @@ namespace Oxide.Plugins
 
         private void CommandListHomes(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player) return;
             if (!config.Settings.HomesEnabled) { p.Reply("Homes are not enabled in the config."); return; }
@@ -3018,7 +2917,7 @@ namespace Oxide.Plugins
 
         private void CommandHomeHomes(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermHomeHomes)) return;
             if (args.Length != 1)
@@ -3056,7 +2955,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportTeam(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             if (!config.TPT.UseClans && !config.TPT.UseFriends && !config.TPT.UseTeams)
                 return;
 
@@ -3150,7 +3049,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportRequest(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpR)) return;
             if (!config.Settings.TPREnabled) { p.Reply("TPR is not enabled in the config."); return; }
@@ -3317,7 +3216,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportAccept(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player) return;
             if (!config.Settings.TPREnabled) { p.Reply("TPR is not enabled in the config."); return; }
@@ -3449,7 +3348,7 @@ namespace Oxide.Plugins
 
         private void CommandWipeHomes(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermWipeHomes)) return;
             Home.Clear();
@@ -3459,7 +3358,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportHelp(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player) return;
             if (!config.Settings.HomesEnabled && !config.Settings.TPREnabled && !IsAllowedMsg(player)) return;
@@ -3487,7 +3386,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportInfo(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             if (!config.Settings.HomesEnabled && !config.Settings.TPREnabled && !config.Settings.TownEnabled) { p.Reply($"{command} is not enabled in the config."); return; }
             var player = p.Object as BasePlayer;
             if (!player) return;
@@ -3623,7 +3522,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportCancel(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             if (!config.Settings.TPREnabled) { p.Reply("TPR is not enabled in the config."); return; }
             var player = p.Object as BasePlayer;
             if (!player) return;
@@ -3688,7 +3587,7 @@ namespace Oxide.Plugins
 
         private void CommandTown(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player) return;
 #if DEBUG
@@ -4030,11 +3929,6 @@ namespace Oxide.Plugins
                                 TeleportTimers.Remove(player.userID);
                                 return;
                             }
-                            if (!player.IsAdmin && !isValidLoc(config.Outpost.Location))
-                            {
-                                player.ChatMessage("Location is under the world! Aborting...");
-                                return;
-                            }
 
                             if (UseEconomy())
                             {
@@ -4110,11 +4004,6 @@ namespace Oxide.Plugins
                                     CheckEconomy(player, config.Bandit.Bypass, False, True);
                                 }
                                 TeleportTimers.Remove(player.userID);
-                                return;
-                            }
-                            if (!player.IsAdmin && !isValidLoc(config.Bandit.Location))
-                            {
-                                player.ChatMessage("Location is under the world! Aborting...");
                                 return;
                             }
 
@@ -4195,11 +4084,6 @@ namespace Oxide.Plugins
                                 TeleportTimers.Remove(player.userID);
                                 return;
                             }
-                            if (!player.IsAdmin && !isValidLoc(config.Town.Location))
-                            {
-                                player.ChatMessage("Location is under the world! Aborting...");
-                                return;
-                            }
 
                             if (UseEconomy())
                             {
@@ -4233,7 +4117,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportII(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (player != null && !IsAllowedMsg(player, PermTpConsole)) return;
             HashSet<BasePlayer> players;
@@ -4387,7 +4271,7 @@ namespace Oxide.Plugins
 
         private void CommandSphereMonuments(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p?.Object as BasePlayer;
             if (!player || !player.IsAdmin) return;
 
@@ -4417,7 +4301,7 @@ namespace Oxide.Plugins
 
                         private void CommandImportHomes(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
 
             if (player != null && !IsAllowedMsg(player, PermImportHomes))
@@ -5913,299 +5797,5 @@ namespace Oxide.Plugins
 
             return homeData.Locations.Keys.ToList();
         }
-
-        #region Config Converter
-
-        class ConfigData
-        {
-            public SettingsData Settings { get; set; }
-            public GameVersionData GameVersion { get; set; }
-            public AdminSettingsData Admin { get; set; }
-            public HomesSettingsData Home { get; set; }
-            public TPTData TPT { get; set; }
-            public TPRData TPR { get; set; }
-            public TownData Town { get; set; }
-            public TownData Outpost { get; set; }
-            public TownData Bandit { get; set; }
-            public VersionNumber Version { get; set; }
-        }
-
-        class SettingsData
-        {
-            public string ChatName { get; set; }
-            public bool HomesEnabled { get; set; }
-            public bool TPREnabled { get; set; }
-            public bool TownEnabled { get; set; }
-            public bool OutpostEnabled { get; set; }
-            public bool BanditEnabled { get; set; }
-            public bool InterruptTPOnHurt { get; set; }
-            public bool InterruptTPOnCold { get; set; }
-            public bool InterruptTPOnHot { get; set; }
-            public bool InterruptTPOnHostile { get; set; }
-            public bool InterruptTPOnSafe { get; set; }
-            public bool InterruptTPOnBalloon { get; set; }
-            public bool InterruptTPOnCargo { get; set; }
-            public bool InterruptTPOnExcavator { get; set; }
-            public bool InterruptTPOnLift { get; set; }
-            public bool InterruptTPOnMonument { get; set; }
-            public bool InterruptTPOnOilrig { get; set; }
-            public bool InterruptTPOnMounted { get; set; }
-            public bool InterruptTPOnSwimming { get; set; }
-            public bool InterruptAboveWater { get; set; }
-            public bool StrictFoundationCheck { get; set; }
-            public float CaveDistanceSmall { get; set; }
-            public float CaveDistanceMedium { get; set; }
-            public float CaveDistanceLarge { get; set; }
-            public float DefaultMonumentSize { get; set; }
-            public float MinimumTemp { get; set; }
-            public float MaximumTemp { get; set; }
-            public Dictionary<string, string> BlockedItems { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            public string BypassCMD { get; set; }
-            public bool UseEconomics { get; set; }
-            public bool UseServerRewards { get; set; }
-            public bool WipeOnUpgradeOrChange { get; set; }
-            public bool AutoGenOutpost { get; set; }
-            public bool AutoGenBandit { get; set; }
-        }
-
-        class GameVersionData
-        {
-            public int Network { get; set; }
-            public int Save { get; set; }
-            public string Level { get; set; }
-            public string LevelURL { get; set; }
-            public int WorldSize { get; set; }
-            public int Seed { get; set; }
-        }
-
-        class AdminSettingsData
-        {
-            public bool AnnounceTeleportToTarget { get; set; }
-            public bool UseableByAdmins { get; set; }
-            public bool UseableByModerators { get; set; }
-            public int LocationRadius { get; set; }
-            public int TeleportNearDefaultDistance { get; set; }
-        }
-
-        class HomesSettingsData
-        {
-            public int HomesLimit { get; set; }
-            public Dictionary<string, int> VIPHomesLimits { get; set; }
-            public int Cooldown { get; set; }
-            public int Countdown { get; set; }
-            public int DailyLimit { get; set; }
-            public Dictionary<string, int> VIPDailyLimits { get; set; }
-            public Dictionary<string, int> VIPCooldowns { get; set; }
-            public Dictionary<string, int> VIPCountdowns { get; set; }
-            public int LocationRadius { get; set; }
-            public bool ForceOnTopOfFoundation { get; set; }
-            public bool CheckFoundationForOwner { get; set; }
-            public bool UseFriends { get; set; }
-            public bool UseClans { get; set; }
-            public bool UseTeams { get; set; }
-            public bool UsableOutOfBuildingBlocked { get; set; }
-            public bool UsableIntoBuildingBlocked { get; set; }
-            public bool CupOwnerAllowOnBuildingBlocked { get; set; }
-            public bool AllowIceberg { get; set; }
-            public bool AllowCave { get; set; }
-            public bool AllowCraft { get; set; }
-            public bool AllowAboveFoundation { get; set; }
-            public bool CheckValidOnList { get; set; }
-            public int Pay { get; set; }
-            public int Bypass { get; set; }
-        }
-
-        class TPTData
-        {
-            public bool UseFriends { get; set; } = true;
-            public bool UseClans { get; set; } = true;
-            public bool UseTeams { get; set; } = true;
-        }
-
-        class TPRData
-        {
-            public int Cooldown { get; set; }
-            public int Countdown { get; set; }
-            public int DailyLimit { get; set; }
-            public Dictionary<string, int> VIPDailyLimits { get; set; }
-            public Dictionary<string, int> VIPCooldowns { get; set; }
-            public Dictionary<string, int> VIPCountdowns { get; set; }
-            public int RequestDuration { get; set; }
-            public bool OffsetTPRTarget { get; set; }
-            public bool BlockTPAOnCeiling { get; set; }
-            public bool UsableOutOfBuildingBlocked { get; set; }
-            public bool UsableIntoBuildingBlocked { get; set; }
-            public bool CupOwnerAllowOnBuildingBlocked { get; set; }
-            public bool AllowCraft { get; set; }
-            public int Pay { get; set; }
-            public int Bypass { get; set; }
-        }
-
-        class TownData
-        {
-            public int Cooldown { get; set; }
-            public int Countdown { get; set; }
-            public int DailyLimit { get; set; }
-            public Dictionary<string, int> VIPDailyLimits { get; set; }
-            public Dictionary<string, int> VIPCooldowns { get; set; }
-            public Dictionary<string, int> VIPCountdowns { get; set; }
-            public Vector3 Location { get; set; }
-            public bool UsableOutOfBuildingBlocked { get; set; }
-            public bool AllowCraft { get; set; }
-            public int Pay { get; set; }
-            public int Bypass { get; set; }
-        }
-
-        void ConfigurationConverter()
-        {
-            ConfigData oldConfig;
-            try
-            {
-                oldConfig = Config.ReadObject<ConfigData>();
-            }
-            catch
-            {
-                return;
-            }
-
-            if (oldConfig == null)
-            {
-                return;
-            }
-
-            var config = new Configuration();
-
-            config.Admin.AnnounceTeleportToTarget = oldConfig.Admin.AnnounceTeleportToTarget;
-            config.Admin.LocationRadius = oldConfig.Admin.LocationRadius;
-            config.Admin.TeleportNearDefaultDistance = oldConfig.Admin.TeleportNearDefaultDistance;
-            config.Admin.UseableByAdmins = oldConfig.Admin.UseableByAdmins;
-            config.Admin.UseableByModerators = oldConfig.Admin.UseableByModerators;
-
-            config.Bandit.AllowCraft = oldConfig.Bandit.AllowCraft;
-            config.Bandit.Bypass = oldConfig.Bandit.Bypass;
-            config.Bandit.Cooldown = oldConfig.Bandit.Cooldown;
-            config.Bandit.Countdown = oldConfig.Bandit.Countdown;
-            config.Bandit.DailyLimit = oldConfig.Bandit.DailyLimit;
-            config.Bandit.Location = oldConfig.Bandit.Location;
-            config.Bandit.Pay = oldConfig.Bandit.Pay;
-            config.Bandit.UsableOutOfBuildingBlocked = oldConfig.Bandit.UsableOutOfBuildingBlocked;
-
-            config.Home.AllowAboveFoundation = oldConfig.Home.AllowAboveFoundation;
-            config.Home.AllowCave = oldConfig.Home.AllowCave;
-            config.Home.AllowCraft = oldConfig.Home.AllowCraft;
-            config.Home.AllowIceberg = oldConfig.Home.AllowIceberg;
-            config.Home.Bypass = oldConfig.Home.Bypass;
-            config.Home.CheckFoundationForOwner = oldConfig.Home.CheckFoundationForOwner;
-            config.Home.CheckValidOnList = oldConfig.Home.CheckValidOnList;
-            config.Home.Cooldown = oldConfig.Home.Cooldown;
-            config.Home.Countdown = oldConfig.Home.Countdown;
-            config.Home.CupOwnerAllowOnBuildingBlocked = oldConfig.Home.CupOwnerAllowOnBuildingBlocked;
-            config.Home.DailyLimit = oldConfig.Home.DailyLimit;
-            config.Home.ForceOnTopOfFoundation = oldConfig.Home.ForceOnTopOfFoundation;
-            config.Home.HomesLimit = oldConfig.Home.HomesLimit;
-            config.Home.LocationRadius = oldConfig.Home.LocationRadius;
-            config.Home.Pay = oldConfig.Home.Pay;
-            config.Home.UsableIntoBuildingBlocked = oldConfig.Home.UsableIntoBuildingBlocked;
-            config.Home.UsableOutOfBuildingBlocked = oldConfig.Home.UsableOutOfBuildingBlocked;
-            config.Home.UseClans = oldConfig.Home.UseClans;
-            config.Home.UseFriends = oldConfig.Home.UseFriends;
-            config.Home.UseTeams = oldConfig.Home.UseTeams;
-
-            config.Outpost.AllowCraft = oldConfig.Outpost.AllowCraft;
-            config.Outpost.Bypass = oldConfig.Outpost.Bypass;
-            config.Outpost.Cooldown = oldConfig.Outpost.Cooldown;
-            config.Outpost.Countdown = oldConfig.Outpost.Countdown;
-            config.Outpost.DailyLimit = oldConfig.Outpost.DailyLimit;
-            config.Outpost.Location = oldConfig.Outpost.Location;
-            config.Outpost.Pay = oldConfig.Outpost.Pay;
-            config.Outpost.UsableOutOfBuildingBlocked = oldConfig.Outpost.UsableOutOfBuildingBlocked;
-
-            config.Settings.AutoGenBandit = oldConfig.Settings.AutoGenBandit;
-            config.Settings.AutoGenOutpost = oldConfig.Settings.AutoGenOutpost;
-            config.Settings.BanditEnabled = oldConfig.Settings.BanditEnabled;
-            config.Settings.BlockedItems = oldConfig.Settings.BlockedItems;
-            config.Settings.BypassCMD = oldConfig.Settings.BypassCMD as string;
-            config.Settings.CaveDistanceLarge = oldConfig.Settings.CaveDistanceLarge;
-            config.Settings.CaveDistanceMedium = oldConfig.Settings.CaveDistanceMedium;
-            config.Settings.CaveDistanceSmall = oldConfig.Settings.CaveDistanceSmall;
-            config.Settings.ChatName = oldConfig.Settings.ChatName as string;
-            config.Settings.DefaultMonumentSize = oldConfig.Settings.DefaultMonumentSize;
-            config.Settings.HomesEnabled = oldConfig.Settings.HomesEnabled;
-            config.Settings.Interrupt.AboveWater = oldConfig.Settings.InterruptAboveWater;
-            config.Settings.Interrupt.Balloon = oldConfig.Settings.InterruptTPOnBalloon;
-            config.Settings.Interrupt.Cargo = oldConfig.Settings.InterruptTPOnCargo;
-            config.Settings.Interrupt.Cold = oldConfig.Settings.InterruptTPOnCold;
-            config.Settings.Interrupt.Excavator = oldConfig.Settings.InterruptTPOnExcavator;
-            config.Settings.Interrupt.Hostile = oldConfig.Settings.InterruptTPOnHostile;
-            config.Settings.Interrupt.Hot = oldConfig.Settings.InterruptTPOnHot;
-            config.Settings.Interrupt.Hurt = oldConfig.Settings.InterruptTPOnHurt;
-            config.Settings.Interrupt.Lift = oldConfig.Settings.InterruptTPOnLift;
-            config.Settings.Interrupt.Monument = oldConfig.Settings.InterruptTPOnMonument;
-            config.Settings.Interrupt.Mounted = oldConfig.Settings.InterruptTPOnMounted;
-            config.Settings.Interrupt.Oilrig = oldConfig.Settings.InterruptTPOnOilrig;
-            config.Settings.Interrupt.Safe = oldConfig.Settings.InterruptTPOnSafe;
-            config.Settings.Interrupt.Swimming = oldConfig.Settings.InterruptTPOnSwimming;
-            config.Settings.MaximumTemp = oldConfig.Settings.MaximumTemp;
-            config.Settings.MinimumTemp = oldConfig.Settings.MinimumTemp;
-            config.Settings.OutpostEnabled = oldConfig.Settings.OutpostEnabled;
-            config.Settings.StrictFoundationCheck = oldConfig.Settings.StrictFoundationCheck;
-            config.Settings.TownEnabled = oldConfig.Settings.TownEnabled;
-            config.Settings.TPREnabled = oldConfig.Settings.TPREnabled;
-            config.Settings.UseEconomics = oldConfig.Settings.UseEconomics;
-            config.Settings.UseServerRewards = oldConfig.Settings.UseServerRewards;
-            config.Settings.WipeOnUpgradeOrChange = oldConfig.Settings.WipeOnUpgradeOrChange;
-
-            config.Town.AllowCraft = oldConfig.Town.AllowCraft;
-            config.Town.Bypass = oldConfig.Town.Bypass;
-            config.Town.Cooldown = oldConfig.Town.Cooldown;
-            config.Town.Countdown = oldConfig.Town.Countdown;
-            config.Town.DailyLimit = oldConfig.Town.DailyLimit;
-            config.Town.Location = oldConfig.Town.Location;
-            config.Town.Pay = oldConfig.Town.Pay;
-            config.Town.UsableOutOfBuildingBlocked = oldConfig.Town.UsableOutOfBuildingBlocked;
-
-            config.TPR.AllowCraft = oldConfig.TPR.AllowCraft;
-            config.TPR.BlockTPAOnCeiling = oldConfig.TPR.BlockTPAOnCeiling;
-            config.TPR.Bypass = oldConfig.TPR.Bypass;
-            config.TPR.Cooldown = oldConfig.TPR.Cooldown;
-            config.TPR.Countdown = oldConfig.TPR.Countdown;
-            config.TPR.CupOwnerAllowOnBuildingBlocked = oldConfig.TPR.CupOwnerAllowOnBuildingBlocked;
-            config.TPR.DailyLimit = oldConfig.TPR.DailyLimit;
-            config.TPR.OffsetTPRTarget = oldConfig.TPR.OffsetTPRTarget;
-            config.TPR.Pay = oldConfig.TPR.Pay;
-            config.TPR.RequestDuration = oldConfig.TPR.RequestDuration;
-            config.TPR.UsableIntoBuildingBlocked = oldConfig.TPR.UsableIntoBuildingBlocked;
-            config.TPR.UsableOutOfBuildingBlocked = oldConfig.TPR.UsableOutOfBuildingBlocked;
-
-            config.Version = Version;
-
-            config.TPT.UseClans = oldConfig.TPT?.UseClans ?? true;
-            config.TPT.UseFriends = oldConfig.TPT?.UseFriends ?? true;
-            config.TPT.UseTeams = oldConfig.TPT?.UseTeams ?? true;
-            config.Bandit.VIPCooldowns = oldConfig.Bandit.VIPCooldowns?.ToDictionary(x => x.Key, x => x.Value) ?? config.Bandit.VIPCooldowns;
-            config.Bandit.VIPCountdowns = oldConfig.Bandit.VIPCountdowns?.ToDictionary(x => x.Key, x => x.Value) ?? config.Bandit.VIPCountdowns;
-            config.Bandit.VIPDailyLimits = oldConfig.Bandit.VIPDailyLimits?.ToDictionary(x => x.Key, x => x.Value) ?? config.Bandit.VIPDailyLimits;
-            config.Home.VIPCooldowns = oldConfig.Home.VIPCooldowns?.ToDictionary(x => x.Key, x => x.Value) ?? config.Home.VIPCooldowns;
-            config.Home.VIPCountdowns = oldConfig.Home.VIPCountdowns?.ToDictionary(x => x.Key, x => x.Value) ?? config.Home.VIPCountdowns;
-            config.Home.VIPDailyLimits = oldConfig.Home.VIPDailyLimits?.ToDictionary(x => x.Key, x => x.Value) ?? config.Home.VIPDailyLimits;
-            config.Home.VIPHomesLimits = oldConfig.Home.VIPHomesLimits?.ToDictionary(x => x.Key, x => x.Value) ?? config.Home.VIPHomesLimits;
-            config.Outpost.VIPCooldowns = oldConfig.Outpost.VIPCooldowns?.ToDictionary(x => x.Key, x => x.Value) ?? config.Outpost.VIPCooldowns;
-            config.Outpost.VIPCountdowns = oldConfig.Outpost.VIPCountdowns?.ToDictionary(x => x.Key, x => x.Value) ?? config.Outpost.VIPCountdowns;
-            config.Outpost.VIPDailyLimits = oldConfig.Outpost.VIPDailyLimits?.ToDictionary(x => x.Key, x => x.Value) ?? config.Outpost.VIPDailyLimits;
-            config.Town.VIPCooldowns = oldConfig.Town.VIPCooldowns?.ToDictionary(x => x.Key, x => x.Value) ?? config.Town.VIPCooldowns;
-            config.Town.VIPCountdowns = oldConfig.Town.VIPCountdowns?.ToDictionary(x => x.Key, x => x.Value) ?? config.Town.VIPCountdowns;
-            config.Town.VIPDailyLimits = oldConfig.Town.VIPDailyLimits?.ToDictionary(x => x.Key, x => x.Value) ?? config.Town.VIPDailyLimits;
-            config.TPR.VIPCooldowns = oldConfig.TPR.VIPCooldowns?.ToDictionary(x => x.Key, x => x.Value) ?? config.TPR.VIPCooldowns;
-            config.TPR.VIPCountdowns = oldConfig.TPR.VIPCountdowns?.ToDictionary(x => x.Key, x => x.Value) ?? config.TPR.VIPCountdowns;
-            config.TPR.VIPDailyLimits = oldConfig.TPR.VIPDailyLimits?.ToDictionary(x => x.Key, x => x.Value) ?? config.TPR.VIPDailyLimits;
-
-            convertData.Converted_1_2_0 = true;
-            dataConvert.WriteObject(convertData);
-            Config.WriteObject<Configuration>(config);
-            oldConfig = null;
-            Puts("Converted config.");
-        }
-
-        #endregion Config Converter
     }
 }
