@@ -19,6 +19,9 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
+    1.2.5:
+    Added messages for when a command is not enabled in the config
+
     1.2.4:
     Fixed Interrupt TP On Oil Rig
     Fixed hostility timer to use the state of hostility time
@@ -135,7 +138,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.4")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.5")]
     class NTeleportation : RustPlugin
     {
         private string banditPrefab;
@@ -2414,7 +2417,8 @@ namespace Oxide.Plugins
         {
             if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowed(player, PermHome) || !config.Settings.HomesEnabled) return;
+            if (!player || !IsAllowed(player, PermHome)) return;
+            if (!config.Settings.HomesEnabled) { p.Reply("Homes are not enabled in the config."); return; }
             if (args.Length != 1)
             {
                 PrintMsgL(player, "SyntaxCommandSetHome");
@@ -2496,7 +2500,7 @@ namespace Oxide.Plugins
         private void CommandRemoveHome(IPlayer p, string command, string[] args)
         {
             if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
-            if (!config.Settings.HomesEnabled) return;
+            if (!config.Settings.HomesEnabled) { p.Reply("Homes are not enabled in the config."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowed(player, PermHome)) return;
             if (args.Length != 1)
@@ -2522,7 +2526,7 @@ namespace Oxide.Plugins
         private void CommandHome(IPlayer p, string command, string[] args)
         {
             if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
-            if (!config.Settings.HomesEnabled) return;
+            if (!config.Settings.HomesEnabled) { p.Reply("Homes are not enabled in the config."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowed(player, PermHome)) return;
             if (args.Length == 0)
@@ -2722,7 +2726,7 @@ namespace Oxide.Plugins
             if (disabledData.DisabledCommands.Contains(command.ToLower())) { player.ChatMessage("Disabled command."); return; }
             if (!IsAllowed(player, PermHome)) return;
             bool paidmoney = False;
-            if (!config.Settings.HomesEnabled) return;
+            if (!config.Settings.HomesEnabled) { player.ChatMessage("Homes are not enabled in the config."); return; }
             if (args.Length < 1)
             {
                 PrintMsgL(player, "SyntaxCommandHome");
@@ -2958,7 +2962,8 @@ namespace Oxide.Plugins
         {
             if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !config.Settings.HomesEnabled) return;
+            if (!player) return;
+            if (!config.Settings.HomesEnabled) { p.Reply("Homes are not enabled in the config."); return; }
             if (args.Length != 0)
             {
                 PrintMsgL(player, "SyntaxCommandListHomes");
@@ -3132,7 +3137,8 @@ namespace Oxide.Plugins
         {
             if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermTpR) || !config.Settings.TPREnabled) return;
+            if (!player || !IsAllowedMsg(player, PermTpR)) return;
+            if (!config.Settings.TPREnabled) { p.Reply("TPR is not enabled in the config."); return; }
             if (args.Length == 0)
             {
                 PrintMsgL(player, "SyntaxCommandTPR");
@@ -3298,7 +3304,8 @@ namespace Oxide.Plugins
         {
             if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !config.Settings.TPREnabled) return;
+            if (!player) return;
+            if (!config.Settings.TPREnabled) { p.Reply("TPR is not enabled in the config."); return; }
             if (args.Length != 0)
             {
                 PrintMsgL(player, "SyntaxCommandTPA");
@@ -3466,7 +3473,7 @@ namespace Oxide.Plugins
         private void CommandTeleportInfo(IPlayer p, string command, string[] args)
         {
             if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
-            if (!config.Settings.HomesEnabled && !config.Settings.TPREnabled && !config.Settings.TownEnabled) return;
+            if (!config.Settings.HomesEnabled && !config.Settings.TPREnabled && !config.Settings.TownEnabled) { p.Reply($"{command} is not enabled in the config."); return; }
             var player = p.Object as BasePlayer;
             if (!player) return;
             if (args.Length == 1)
@@ -3602,7 +3609,7 @@ namespace Oxide.Plugins
         private void CommandTeleportCancel(IPlayer p, string command, string[] args)
         {
             if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
-            if (!config.Settings.TPREnabled) return;
+            if (!config.Settings.TPREnabled) { p.Reply("TPR is not enabled in the config."); return; }
             var player = p.Object as BasePlayer;
             if (!player) return;
             if (args.Length != 0)
