@@ -1,28 +1,28 @@
 //#define DEBUG
 using Facepunch;
 using Network;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Linq;
-using Newtonsoft.Json;
+using Oxide.Core;
 using Oxide.Core.Configuration;
 using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
-using Oxide.Core;
 using Oxide.Game.Rust;
+using Oxide.Game.Rust.Cui;
 using Rust;
-using System.Collections.Generic;
+using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Reflection;
-using System;
 using UnityEngine;
-using System.IO;
-using Oxide.Game.Rust.Cui;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.7.2")]
+    [Info("NTeleportation", "nivex", "1.7.3")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -85,7 +85,7 @@ namespace Oxide.Plugins
         private bool outpostEnabled;
         private bool banditEnabled;
 
-        class MonumentInfoEx
+        private class MonumentInfoEx
         {
             public Vector3 position;
             public float radius;
@@ -262,6 +262,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Show Time As Seconds Instead")]
             public bool UseSeconds { get; set; } = false;
+
+            [JsonProperty(PropertyName = "Use Quick Teleport")]
+            public bool Quick { get; set; } = true;
 
             [JsonProperty(PropertyName = "Chat Command Color")]
             public string ChatCommandColor = "#FFFF00";
@@ -685,7 +688,7 @@ namespace Oxide.Plugins
 
         #endregion
 
-        class DisabledData
+        private class DisabledData
         {
             [JsonProperty("List of disabled commands")]
             public List<string> DisabledCommands = new List<string>();
@@ -695,7 +698,7 @@ namespace Oxide.Plugins
 
         DisabledData DisabledCommandData = new DisabledData();
 
-        class AdminData
+        private class AdminData
         {
             [JsonProperty("pl")]
             public Vector3 PreviousLocation { get; set; }
@@ -704,7 +707,7 @@ namespace Oxide.Plugins
             public Dictionary<string, Vector3> Locations { get; set; } = new Dictionary<string, Vector3>(StringComparer.OrdinalIgnoreCase);
         }
 
-        class HomeData
+        private class HomeData
         {
             [JsonProperty("l")]
             public Dictionary<string, Vector3> Locations { get; set; } = new Dictionary<string, Vector3>(StringComparer.OrdinalIgnoreCase);
@@ -725,7 +728,7 @@ namespace Oxide.Plugins
             public int Timestamp { get; set; }
         }
 
-        class TeleportTimer
+        private class TeleportTimer
         {
             public Timer Timer { get; set; }
             public BasePlayer OriginPlayer { get; set; }
@@ -2412,7 +2415,7 @@ namespace Oxide.Plugins
             {
                 return;
             }
-             
+
             bool changed = false;
             bool cleared = false;
 
@@ -3172,7 +3175,7 @@ namespace Oxide.Plugins
                     PrintMsgL(player, "AdminTPCoordinates", player.transform.position);
                     Puts(_("LogTeleport", null, player.displayName, player.transform.position));
                     break;
-                case 4:                    
+                case 4:
                     target = FindPlayersSingle(args[0], player);
                     if (target == null) return;
                     if (permission.UserHasPermission(player.UserIDString, PermDisallowTpToMe))
@@ -4785,8 +4788,12 @@ namespace Oxide.Plugins
                         if (limit > 0) PrintMsgL(player, "DM_TownTPAmount", limit - tpData.Amount, language);
                         if (!string.IsNullOrEmpty(config.Settings.BypassCMD) && cooldown > 0 && timestamp - tpData.Timestamp < cooldown)
                         {
-                            var remain = cooldown - (timestamp - tpData.Timestamp);
+                            if (Interface.CallHook("OnTeleportCooldownNotify", player) != null)
+                            {
+                                break;
+                            }
 
+                            var remain = cooldown - (timestamp - tpData.Timestamp);
                             PrintMsgL(player, "DM_TownTPCooldown", FormatTime(player, remain));
 
                             if (settings.Bypass > 0)
@@ -5214,6 +5221,10 @@ namespace Oxide.Plugins
                         }
                         else if (UseEconomy())
                         {
+                            if (Interface.CallHook("OnTeleportCooldownNotify", player) != null)
+                            {
+                                return;
+                            }
                             var remain = cooldown - (timestamp - teleportData.Timestamp);
                             PrintMsgL(player, "DM_TownTPCooldown", FormatTime(player, remain));
                             if (settings.Bypass > -1)
@@ -5225,6 +5236,10 @@ namespace Oxide.Plugins
                         }
                         else
                         {
+                            if (Interface.CallHook("OnTeleportCooldownNotify", player) != null)
+                            {
+                                return;
+                            }
                             var remain = cooldown - (timestamp - teleportData.Timestamp);
                             PrintMsgL(player, "DM_TownTPCooldown", FormatTime(player, remain));
                             return;
@@ -5232,6 +5247,10 @@ namespace Oxide.Plugins
                     }
                     else
                     {
+                        if (Interface.CallHook("OnTeleportCooldownNotify", player) != null)
+                        {
+                            return;
+                        }
                         var remain = cooldown - (timestamp - teleportData.Timestamp);
                         PrintMsgL(player, "DM_TownTPCooldown", FormatTime(player, remain));
                         return;
@@ -5629,7 +5648,7 @@ namespace Oxide.Plugins
 
             player.PauseFlyHackDetection();
             player.PauseSpeedHackDetection();
-            player.UpdateActiveItem(0u);
+            player.UpdateActiveItem(default(ItemId));
             player.EnsureDismounted();
             player.Server_CancelGesture();
 
@@ -5642,7 +5661,7 @@ namespace Oxide.Plugins
             {
                 StartSleeping(player);
                 player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, true);
-                player.ClientRPCPlayer(null, player, "StartLoading_Quick", arg1: true);
+                player.ClientRPCPlayer(null, player, config.Settings.Quick ? "StartLoading_Quick" : "StartLoading", arg1: true);
             }
 
             player.Teleport(newPosition);
@@ -5714,7 +5733,7 @@ namespace Oxide.Plugins
             {
                 float y = TerrainMeta.HeightMap.GetHeight(note.worldPosition);
                 if (player.IsFlying) y = Mathf.Max(y, player.transform.position.y);
-                Teleport(player, note.worldPosition + new Vector3(0f, y, 0f), true);
+                player.Teleport(note.worldPosition + new Vector3(0f, y, 0f));
             }
         }
 
