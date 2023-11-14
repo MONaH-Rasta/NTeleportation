@@ -20,7 +20,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.6")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.7")]
     class NTeleportation : RustPlugin
     {
         private bool newSave;
@@ -4339,15 +4339,17 @@ namespace Oxide.Plugins
 
         public void Teleport(BasePlayer player, float x, float y, float z) => Teleport(player, new Vector3(x, y, z));
 
-        public void Teleport(BasePlayer player, Vector3 position, bool save = True)
+        public void Teleport(BasePlayer player, Vector3 newPosition, bool save = True)
         {
-            if (!player.IsValid() || Vector3.Distance(position, Zero) < 5f) return;
+            if (!player.IsValid() || Vector3.Distance(newPosition, Zero) < 5f) return;
 
             if (save) SaveLocation(player);
             if (!teleporting.ContainsKey(player.userID))
-                teleporting.Add(player.userID, position);
-            else teleporting[player.userID] = position;
+                teleporting.Add(player.userID, newPosition);
+            else teleporting[player.userID] = newPosition;
 
+            var oldPosition = player.transform.position;
+            
             try
             {
                 player.EnsureDismounted(); // 1.1.2 @Def
@@ -4365,9 +4367,9 @@ namespace Oxide.Plugins
 
                 player.RemoveFromTriggers(); // 1.1.2 @Def recommendation to use natural method for issue with triggers
                 player.EnableServerFall(True); // redundant, in OnEntityTakeDamage hook
-                player.Teleport(position); // 1.1.6
+                player.Teleport(newPosition); // 1.1.6
 
-                if (player.IsConnected && !Network.Net.sv.visibility.IsInside(player.net.group, position))
+                if (player.IsConnected && !Network.Net.sv.visibility.IsInside(player.net.group, newPosition))
                 {
                     player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, True);
                     player.ClientRPCPlayer(null, player, "StartLoading");
@@ -4384,6 +4386,8 @@ namespace Oxide.Plugins
                 player.EnableServerFall(False);
                 player.ForceUpdateTriggers(); // 1.1.4 exploit fix for looting sleepers in safe zones
             }
+
+            Interface.CallHook("OnPlayerTeleported", player, oldPosition, newPosition);
         }
 
         bool IsInvisible(BasePlayer player)
