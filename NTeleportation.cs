@@ -19,13 +19,16 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
-    Fixed Interrupt > Hot
-    Fixed Interrupt > Cold
+Fixed a bug where players could fall through the map while teleporting. Credits @ctv
+Improved `Interrupt > Monument` to determine if an area is part of a monument based on the map topology itself
+Improved `Allow Cave` to determine if an area is part of a cave based on the map topology itself
+Map topology is way more accurate. So you will notice players being able to teleport much sooner, as they'll no longer have to walk extended distances outside of a monument to do so.
+The command /spm has been disabled until it can accurately visualize the map topology
 */
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.4.4")]
+    [Info("NTeleportation", "nivex", "1.4.5")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -177,7 +180,7 @@ namespace Oxide.Plugins
             public bool BlockZoneFlag { get; set; } = False;
 
             [JsonProperty(PropertyName = "Chat Name")]
-            public string ChatName { get; set; } = "<color=red>Teleportation</color>: ";
+            public string ChatName { get; set; } = "<color=red>Teleportation</color> \n\n";
 
             [JsonProperty(PropertyName = "Chat Steam64ID")]
             public ulong ChatID { get; set; } = 76561199056025689;
@@ -356,6 +359,9 @@ namespace Oxide.Plugins
 
         public class TPRSettings
         {
+            [JsonProperty(PropertyName = "Require Player To Be Friend, Clan Mate, Or Team Mate")]
+            public bool UseClans_Friends_Teams { get; set; }
+
             [JsonProperty(PropertyName = "Allow Cave")]
             public bool AllowCave { get; set; } = False;
 
@@ -471,6 +477,8 @@ namespace Oxide.Plugins
             public TownSettings Bandit = new TownSettings();
         }
 
+        private bool pluginLoaded;
+
         protected override void LoadConfig()
         {
             base.LoadConfig();
@@ -481,16 +489,27 @@ namespace Oxide.Plugins
                 config = Config.ReadObject<Configuration>();
                 if (config == null) throw new Exception();
             }
-            catch
+            catch (JsonException)
+            {
+                PrintError("Your configuration file contains a json exception error. Please fix and reload.");
+                LoadDefaultConfig();
+                return;
+            }
+            catch (Exception)
             {
                 PrintError("Your configuration file contains an error. Using default configuration values.");
                 LoadDefaultConfig();
             }
 
+            pluginLoaded = true;
             SaveConfig();
         }
 
-        protected override void SaveConfig() => Config.WriteObject(config);
+        protected override void SaveConfig()
+        {
+            if (!pluginLoaded) return;
+            Config.WriteObject(config);
+        }
 
         protected override void LoadDefaultConfig()
         {
@@ -609,6 +628,7 @@ namespace Oxide.Plugins
                 {"HomeTPCrafting", "You can't set your home while crafting!"},
                 {"Request", "You've requested a teleport to {0}!"},
                 {"RequestTarget", "{0} requested to be teleported to you! Use '/tpa' to accept!"},
+                {"TPR_NoClan_NoFriend_NoTeam", "This command is only available to friends or teammates or clanmates!"},
                 {"PendingRequest", "You already have a request pending, cancel that request or wait until it gets accepted or times out!"},
                 {"PendingRequestTarget", "The player you wish to teleport to already has a pending request, try again later!"},
                 {"NoPendingRequest", "You have no pending teleport request!"},
@@ -1105,6 +1125,7 @@ namespace Oxide.Plugins
                 {"HomeTPCrafting", "Вы не можете установить свой дом во время крафта!"},
                 {"Request", "Вы запросили телепорт на {0}!"},
                 {"RequestTarget", "{0} просят телепортироваться к вам! Использовать '/tpa' принять!"},
+                {"TPR_NoClan_NoFriend_NoTeam", "Этот игрок Вам не друг не тимейт не соклановец! \nЭта каманда доступна только для друзей или тимейтов или соклановцам!"},
                 {"PendingRequest", "У вас уже есть запрос в ожидании, отменить этот запрос или ждать, пока он не будет принят или тайм-аут!"},
                 {"PendingRequestTarget", "Игрок, которому вы хотите телепортироваться, уже имеет ожидающий запрос, повторите попытку позже!"},
                 {"NoPendingRequest", "У вас нет запроса на телепортацию!"},
@@ -1628,7 +1649,7 @@ namespace Oxide.Plugins
             AddCovalenceCommand("teleport.toplayer", nameof(CommandTeleportII));
             AddCovalenceCommand("teleport.topos", nameof(CommandTeleportII));
             AddCovalenceCommand("teleport.importhomes", nameof(CommandImportHomes));
-            AddCovalenceCommand("spm", nameof(CommandSphereMonuments));
+            //AddCovalenceCommand("spm", nameof(CommandSphereMonuments));
             FindMonuments();  // 1.2.2 location moved from Loaded() to fix outpost and bandit location not being set after a wipe
         }
 
@@ -1714,7 +1735,7 @@ namespace Oxide.Plugins
             TeleportTimer teleportTimer;
             if (!TeleportTimers.TryGetValue(player.userID, out teleportTimer)) return;
             DamageType major = hitInfo.damageTypes.GetMajorityDamageType();
-            
+
             NextTick(() =>
             {
                 if (!player || !hitInfo.hasDamage) return;
@@ -1848,6 +1869,15 @@ namespace Oxide.Plugins
             adminData.PreviousLocation = player.transform.position;
             changedAdmin = True;
             PrintMsgL(player, "AdminTPBackSave");
+        }
+
+        private void RemoveLocation(BasePlayer player)
+        {
+            AdminData adminData;
+            if (!Admin.TryGetValue(player.userID, out adminData))
+                return;
+            adminData.PreviousLocation = Zero;
+            changedAdmin = True;
         }
 
         char[] chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".ToCharArray();
@@ -2903,8 +2933,7 @@ namespace Oxide.Plugins
         private void CommandTeleportTeam(IPlayer p, string command, string[] args)
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
-            if (!config.TPT.UseClans && !config.TPT.UseFriends && !config.TPT.UseTeams)
-                return;
+            if (!config.TPT.UseClans && !config.TPT.UseFriends && !config.TPT.UseTeams) return;
 
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpT))
@@ -2932,11 +2961,6 @@ namespace Oxide.Plugins
 
         public bool IsOnSameTeam(ulong playerId, ulong targetId)
         {
-            if (!config.TPT.UseTeams || !IsEnabled(targetId.ToString(), "team"))
-            {
-                return false;
-            }
-
             RelationshipManager.PlayerTeam team1;
             if (!RelationshipManager.Instance.playerToTeam.TryGetValue(playerId, out team1))
             {
@@ -2954,11 +2978,6 @@ namespace Oxide.Plugins
 
         private bool AreFriends(string playerId, string targetId)
         {
-            if (!config.TPT.UseFriends || !IsEnabled(targetId, "friend") || Friends == null || !Friends.IsLoaded || string.IsNullOrEmpty(playerId) || string.IsNullOrEmpty(targetId))
-            {
-                return False;
-            }
-
             var success = Friends?.Call("AreFriends", playerId, targetId);
 
             if (success is bool)
@@ -2966,24 +2985,19 @@ namespace Oxide.Plugins
                 return (bool)success;
             }
 
-            return false; // Friends.Call<bool>("AreFriends", playerId, targetId);
+            return false;
         }
 
         private bool IsInSameClan(string playerId, string targetId)
         {
-            if (!config.TPT.UseClans || !IsEnabled(targetId, "clan") || Clans == null || !Clans.IsLoaded)
-            {
-                return false;
-            }
-
-            string targetClan = Clans.Call<string>("GetClanOf", targetId);
+            string targetClan = Clans?.Call("GetClanOf", targetId) as string;
 
             if (targetClan == null)
             {
                 return false;
             }
 
-            string playerClan = Clans.Call<string>("GetClanOf", playerId);
+            string playerClan = Clans?.Call("GetClanOf", playerId) as string;
 
             if (playerClan == null)
             {
@@ -2995,7 +3009,15 @@ namespace Oxide.Plugins
 
         private void OnTeleportRequested(BasePlayer target, BasePlayer player)
         {
-            if (IsInSameClan(player.UserIDString, target.UserIDString) || AreFriends(player.UserIDString, target.UserIDString) || IsOnSameTeam(player.userID, target.userID))
+            if (config.TPT.UseClans && IsEnabled(target.UserIDString, "clan") && IsInSameClan(player.UserIDString, target.UserIDString))
+            {
+                target.SendConsoleCommand("chat.say /tpa");
+            }
+            else if (config.TPT.UseFriends && IsEnabled(target.UserIDString, "friend") && AreFriends(player.UserIDString, target.UserIDString))
+            {
+                target.SendConsoleCommand("chat.say /tpa");
+            }
+            else if (config.TPT.UseTeams && IsEnabled(target.UserIDString, "team") && IsOnSameTeam(player.userID, target.userID))
             {
                 target.SendConsoleCommand("chat.say /tpa");
             }
@@ -3222,12 +3244,31 @@ namespace Oxide.Plugins
                 return;
             }
 
-            PlayersRequests[player.userID] = target;
-            PlayersRequests[target.userID] = player;
-            PendingRequests[target.userID] = timer.Once(config.TPR.RequestDuration, () => { RequestTimedOut(player, target); });
-            PrintMsgL(player, "Request", target.displayName);
-            PrintMsgL(target, "RequestTarget", player.displayName);
-            Interface.CallHook("OnTeleportRequested", target, player);
+            if (config.TPR.UseClans_Friends_Teams)
+            {
+                if (IsInSameClan(player.UserIDString, target.UserIDString) || AreFriends(player.UserIDString, target.UserIDString) || IsOnSameTeam(player.userID, target.userID))
+                {
+                    PlayersRequests[player.userID] = target;
+                    PlayersRequests[target.userID] = player;
+                    PendingRequests[target.userID] = timer.Once(config.TPR.RequestDuration, () => { RequestTimedOut(player, target); });
+                    PrintMsgL(player, "Request", target.displayName);
+                    PrintMsgL(target, "RequestTarget", player.displayName);
+                    Interface.CallHook("OnTeleportRequested", target, player);
+                }
+                else
+                {
+                    PrintMsgL(player, "TPR_NoClan_NoFriend_NoTeam");
+                }
+            }
+            else
+            {
+                PlayersRequests[player.userID] = target;
+                PlayersRequests[target.userID] = player;
+                PendingRequests[target.userID] = timer.Once(config.TPR.RequestDuration, () => { RequestTimedOut(player, target); });
+                PrintMsgL(player, "Request", target.displayName);
+                PrintMsgL(target, "RequestTarget", player.displayName);
+                Interface.CallHook("OnTeleportRequested", target, player);
+            }
         }
 
         private void CommandTeleportAccept(IPlayer p, string command, string[] args)
@@ -3344,7 +3385,8 @@ namespace Oxide.Plugins
                             }
                         }
                     }
-                    Teleport(originPlayer, player.transform.position, TeleportType.TPA, config.TPR.AllowTPB);
+                    Teleport(originPlayer, player.transform.position, TeleportType.TPA);
+                    if (!config.TPR.AllowTPB) RemoveLocation(originPlayer);
                     var tprData = TPR[originPlayer.userID];
                     tprData.Amount++;
                     tprData.Timestamp = timestamp;
@@ -4285,11 +4327,14 @@ namespace Oxide.Plugins
             return config.Settings.DefaultMonumentSize;
         }
 
-        private void CommandSphereMonuments(IPlayer p, string command, string[] args)
+        /*private void CommandSphereMonuments(IPlayer p, string command, string[] args)
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p?.Object as BasePlayer;
             if (!player || !player.IsAdmin || !player.IsConnected || player.IsSleeping()) return;
+
+            player.ChatMessage("near monument: " + IsNearMonument(player).ToString());
+            player.ChatMessage("near cave: " + IsNearCave(player).ToString());
 
             foreach (var monument in monuments)
             {
@@ -4308,7 +4353,7 @@ namespace Oxide.Plugins
                 player.SendConsoleCommand("ddraw.sphere", 30f, Color.black, cave.Value, realdistance);
                 player.SendConsoleCommand("ddraw.text", 30f, Color.cyan, cave.Value, name);
             }
-        }
+        }*/
 
         private void CommandImportHomes(IPlayer p, string command, string[] args)
         {
@@ -4403,14 +4448,12 @@ namespace Oxide.Plugins
 
         public void Teleport(BasePlayer player, float x, float y, float z, TeleportType type) => Teleport(player, new Vector3(x, y, z), type);
 
-        public void Teleport(BasePlayer player, Vector3 newPosition, TeleportType type, bool save = True)
+        public void Teleport(BasePlayer player, Vector3 newPosition, TeleportType type)
         {
             if (!player.IsValid() || Vector3.Distance(newPosition, Zero) < 5f) return;
 
-            if (save) SaveLocation(player);
-            if (!teleporting.ContainsKey(player.userID))
-                teleporting.Add(player.userID, newPosition);
-            else teleporting[player.userID] = newPosition;
+            SaveLocation(player);
+            teleporting[player.userID] = newPosition;
 
             var oldPosition = player.transform.position;
 
@@ -4433,10 +4476,9 @@ namespace Oxide.Plugins
                 }
 
                 player.RemoveFromTriggers(); // 1.1.2 @Def recommendation to use natural method for issue with triggers
-                player.EnableServerFall(True); // redundant, in OnEntityTakeDamage hook
                 player.Teleport(newPosition); // 1.1.6
 
-                if (player.IsConnected && !Network.Net.sv.visibility.IsInside(player.net.group, newPosition))
+                if (player.IsConnected && !Network.Net.sv.visibility.IsInside(player.net.group, newPosition)) // is the issue here?
                 {
                     player.ClientRPCPlayer(null, player, "StartLoading");
                     player.SendEntityUpdate();
@@ -4449,7 +4491,6 @@ namespace Oxide.Plugins
             }
             finally
             {
-                player.EnableServerFall(False);
                 player.ForceUpdateTriggers(); // 1.1.4 exploit fix for looting sleepers in safe zones
             }
 
@@ -4469,11 +4510,11 @@ namespace Oxide.Plugins
                 player.SetPlayerFlag(BasePlayer.PlayerFlags.Sleeping, True);
                 player.sleepStartTime = Time.time;
                 BasePlayer.sleepingPlayerList.Add(player);
-                BasePlayer.bots.Remove(player);
                 player.CancelInvoke("InventoryUpdate");
                 player.CancelInvoke("TeamUpdate");
             }
         }
+
         #endregion
 
         #region Checks
@@ -4511,7 +4552,7 @@ namespace Oxide.Plugins
         {
             var pos = player.transform.position;
 #if DEBUG
-            Puts($"Player position: {pos.ToString()}.  Checking for water...");
+            Puts($"Player position: {pos}.  Checking for water...");
 #endif
             if ((TerrainMeta.HeightMap.GetHeight(pos) - TerrainMeta.WaterMap.GetHeight(pos)) >= 0)
             {
@@ -4529,8 +4570,18 @@ namespace Oxide.Plugins
             }
         }
 
+        private bool ContainsTopology(TerrainTopology.Enum mask, Vector3 position)
+        {
+            return (TerrainMeta.TopologyMap.GetTopology(position) & (int)mask) != 0;
+        }
+
         private string NearMonument(BasePlayer player)
         {
+            if (!IsNearMonument(player))
+            {
+                return null;
+            }
+
             foreach (var entry in monuments)
             {
                 if (entry.Key.ToLower().Contains("power")) continue;
@@ -4552,8 +4603,23 @@ namespace Oxide.Plugins
             return null;
         }
 
+        public bool IsNearMonument(BasePlayer player)
+        {
+            return !ContainsTopology(TerrainTopology.Enum.Building, player.transform.position) && ContainsTopology(TerrainTopology.Enum.Monument, player.transform.position);
+        }
+
+        public bool IsNearCave(BasePlayer player)
+        {
+            return !player.IsOutside() && ContainsTopology(TerrainTopology.Enum.Building | TerrainTopology.Enum.Monument, player.transform.position);
+        }
+
         private string NearCave(BasePlayer player)
         {
+            if (!IsNearCave(player))
+            {
+                return null;
+            }
+
             foreach (var entry in caves)
             {
                 string caveName = entry.Key.Contains(":") ? entry.Key.Substring(0, entry.Key.LastIndexOf(":")) : entry.Key;
@@ -5362,7 +5428,7 @@ namespace Oxide.Plugins
             }
             else
                 userId = targets.First().userID;
-            
+
             return userId;
         }
 
@@ -5387,10 +5453,10 @@ namespace Oxide.Plugins
                     }
                 }
                 PrintMsgL(player, "MultiplePlayers", string.Join(", ", targets.Select(p => p.displayName).ToArray()));
-                
+
                 return null;
             }
-            
+
             return targets.First();
         }
 
