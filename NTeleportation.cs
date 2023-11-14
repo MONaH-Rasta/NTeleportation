@@ -19,13 +19,14 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
-Added `Home > Usable From Safe Zone Only` (false)
-Blocked sethome at monuments
+Fixed blocking /home at all monuments instead of only /sethome
+Added russian translations for HomeTooCloseToMon and TPHomeSafeZoneOnly (Credits MoNaH)
+Cleaned up monument display name
 */
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.5.2")]
+    [Info("NTeleportation", "nivex", "1.5.3")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -725,6 +726,7 @@ namespace Oxide.Plugins
                 {"TooCloseToMon", "You can't teleport so close to the {0}!"},
                 {"TooCloseToCave", "You can't teleport so close to a cave!"},
                 {"HomeTooCloseToCave", "You can't set home so close to a cave!"},
+                {"HomeTooCloseToMon", "You can't set home so close to a monument!"},
                 {"TownTP", "You teleported to town!"},
                 {"TownTPNotSet", "Town is currently not set!"},
                 {"TownTPDisabled", "Town is currently not enabled!"},
@@ -1225,8 +1227,10 @@ namespace Oxide.Plugins
                 {"TPCrafting", "Вы не можете телепортироваться в процессе крафта!"},
                 {"TPBlockedItem", "Вы не можете телепортироваться пока несёте: {0}!"},
                 {"TooCloseToMon", "Вы не можете телепортироваться так близко к {0}!"},
+                {"TPHomeSafeZoneOnly", "Вы можете телепортироваться домой только из безопасной зоны!" },
                 {"TooCloseToCave", "Вы не можете телепортироваться так близко к пещере!"},
                 {"HomeTooCloseToCave", "Вы не можете сохранить местоположение в качестве дома так близко к пещере!"},
+                {"HomeTooCloseToMon", "Вы не можете сохранить местоположение в качестве дома так близко к монументу!"},
                 {"TownTP", "Вы телепортрованы в Город!"},
                 {"TownTPNotSet", "Местоположение Города не задано!"},
                 {"TownTPNotSetIsland", "Не установлено ни одного месторасположения острова!"},
@@ -2519,7 +2523,7 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "SyntaxCommandSetHome");
                 return;
             }
-            var err = CheckPlayer(player, False, CanCraftHome(player), True, "home");
+            var err = CheckPlayer(player, False, CanCraftHome(player), True, "sethome");
             if (err != null)
             {
                 PrintMsgL(player, err);
@@ -5124,7 +5128,7 @@ namespace Oxide.Plugins
 
         private string CheckPlayer(BasePlayer player, bool build = False, bool craft = False, bool origin = True, string mode = "home")
         {
-            if (config.Settings.Interrupt.Oilrig || config.Settings.Interrupt.Excavator || config.Settings.Interrupt.Monument || mode == "home")
+            if (config.Settings.Interrupt.Oilrig || config.Settings.Interrupt.Excavator || config.Settings.Interrupt.Monument || mode == "sethome")
             {
                 string monname = NearMonument(player.transform.position);
 
@@ -5140,8 +5144,14 @@ namespace Oxide.Plugins
                         return "TPExcavator";
                     }
 
-                    if (config.Settings.Interrupt.Monument || mode == "home")
+                    if (mode == "sethome")
                     {
+                        return "HomeTooCloseToMon";
+                    }
+
+                    if (config.Settings.Interrupt.Monument)
+                    {
+                        if (monname.Contains(":")) monname = monname.Substring(0, monname.IndexOf(":"));
                         return _("TooCloseToMon", player, monname);
                     }
                 }
