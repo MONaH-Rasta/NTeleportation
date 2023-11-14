@@ -19,6 +19,10 @@ using static UnityEngine.Vector3;
 using System.Text.RegularExpressions;
 
 /*
+    1.1.4:
+    Fixed exploit where players could loot sleepers in safe zones after using teleport
+    Fix for TPT command allowing teleports to all
+
     1.1.3:
     Rewrote and fixed /tpt command
     Allowed admins to teleport to self for testing purposes
@@ -58,7 +62,7 @@ using System.Text.RegularExpressions;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.1.3")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.1.4")]
     class NTeleportation : RustPlugin
     {
         private static readonly Vector3 Up = up;
@@ -2767,20 +2771,18 @@ namespace Oxide.Plugins
                     return;
                 }
 
-                string PlayerClan = Clans?.Call<string>("GetClanOf", player);
-                string TargetClan = Clans?.Call<string>("GetClanOf", target);
-                bool isFriends = player.IsAdmin || (Friends?.Call<bool>("AreFriends", player.userID, target.userID) ?? false);
-                bool notClanMates = (string.IsNullOrEmpty(PlayerClan) || string.IsNullOrEmpty(TargetClan) || PlayerClan != TargetClan);
-                bool notTeamMates = (player.currentTeam == 0 || target.currentTeam == 0 || player.currentTeam != target.currentTeam);
+                string playerClan = Clans?.Call<string>("GetClanOf", player.UserIDString);
+                string targetClan = Clans?.Call<string>("GetClanOf", target.UserIDString);
+                bool isFriends = Friends?.Call<bool>("AreFriends", player.UserIDString, target.UserIDString) ?? false;
+                bool isClanMates = !string.IsNullOrEmpty(playerClan) && !string.IsNullOrEmpty(targetClan) && playerClan == targetClan;
+                bool isTeamMates = player.currentTeam != 0 && target.currentTeam != 0 && player.currentTeam == target.currentTeam;
 
-                if (notClanMates && notTeamMates && !isFriends)
+                if (isClanMates || isTeamMates || isFriends || player.IsAdmin)
                 {
-                    PrintMsgL(player, "NotValidTPT");
-                    return;
+                    cmdChatTeleportRequest(player, command, new string[1] { target.UserIDString });
+                    cmdChatTeleportAccept(target, command, new string[0]);
                 }
-
-                cmdChatTeleportRequest(player, command, new string[1] { target.UserIDString });
-                cmdChatTeleportAccept(target, command, new string[0]);
+                else PrintMsgL(player, "NotValidTPT");
             }
         }
 
@@ -4043,10 +4045,11 @@ namespace Oxide.Plugins
             finally
             {
                 player.EnableServerFall(false);
+                player.ForceUpdateTriggers(); // 1.1.4 exploit fix for looting sleepers in safe zones
             }
         }
 
-        public void StartSleeping(BasePlayer player)
+        public void StartSleeping(BasePlayer player) // custom as to not cancel crafting, or remove player from vanish
         {
             if (!player.IsSleeping())
             {
@@ -5323,7 +5326,7 @@ namespace Oxide.Plugins
                 return HasCompatibleInterface(objectType) && HasCompatibleConstructor(objectType);
             }
 
-            private static bool HasCompatibleInterface(Type objectType)
+            private static bool HasCompatibleInterface(Type objectType) 
             {
                 return objectType.GetInterfaces().Where(i => HasGenericTypeDefinition(i, typeof(IDictionary<,>))).Any(i => typeof(T).IsAssignableFrom(i.GetGenericArguments().First()));
             }
@@ -5344,7 +5347,7 @@ namespace Oxide.Plugins
             }
         }
 
-        [HookMethod("SendHelpText")]
+        [HookMethod("SendHelpText")] 
         private void SendHelpText(BasePlayer player)
         {
             PrintMsgL(player, "<size=14>NTeleportation</size> by <color=#ce422b>Nogrod</color>\n<color=#ffd479>/sethome NAME</color> - Set home on current foundation\n<color=#ffd479>/home NAME</color> - Go to one of your homes\n<color=#ffd479>/home list</color> - List your homes\n<color=#ffd479>/town</color> - Go to town, if set\n/tpb - Go back to previous location\n/tpr PLAYER - Request teleport to PLAYER\n/tpa - Accept teleport request");
