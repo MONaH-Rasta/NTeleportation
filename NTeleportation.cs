@@ -22,12 +22,12 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.7.4")]
+    [Info("NTeleportation", "nivex", "1.7.5")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
         [PluginReference]
-        private Plugin Clans, Economics, IQEconomic, ServerRewards, Friends, CompoundTeleport, ZoneManager, NoEscape, PopupNotifications;
+        private Plugin Clans, Economics, IQEconomic, ServerRewards, Friends, CompoundTeleport, ZoneManager, NoEscape, PopupNotifications, BlockUsers;
 
         private Dictionary<string, BasePlayer> _ids = new Dictionary<string, BasePlayer>();
         private Dictionary<BasePlayer, string> _players = new Dictionary<BasePlayer, string>();
@@ -187,6 +187,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Interrupt TP")]
             public InterruptSettings Interrupt { get; set; } = new InterruptSettings();
+
+            [JsonProperty(PropertyName = "Auto Wake Up After Teleport")]
+            public bool AutoWakeUp { get; set; }
 
             [JsonProperty(PropertyName = "Respawn Players At Outpost")]
             public bool RespawnOutpost { get; set; }
@@ -475,6 +478,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Allow TPB")]
             public bool AllowTPB { get; set; } = true;
+
+            [JsonProperty(PropertyName = "Use Blocked Users")]
+            public bool UseBlockedUsers { get; set; } = false;
 
             [JsonProperty(PropertyName = "Cooldown")]
             public int Cooldown { get; set; } = 600;
@@ -808,6 +814,7 @@ namespace Oxide.Plugins
                 {"NotAllowed", "You are not allowed to use this command!"},
                 {"Success", "You teleported to {0}!"},
                 {"SuccessTarget", "{0} teleported to you!"},
+                {"BlockedTeleportTarget", "You can't teleport to user \"{0}\", they have you teleport blocked!"},
                 {"Cancelled", "Your teleport request to {0} was cancelled!"},
                 {"CancelledTarget", "{0} teleport request was cancelled!"},
                 {"TPCancelled", "Your teleport was cancelled!"},
@@ -1294,6 +1301,7 @@ namespace Oxide.Plugins
                 {"NotAllowed", "Вам не разрешено использовать эту команду!"},
                 {"Success", "Вы телепортированы к {0}!"},
                 {"SuccessTarget", "{0} телепортирован к вам!"},
+                {"BlockedTeleportTarget", "You can't teleport to user \"{0}\", they have you teleport blocked!"},
                 {"Cancelled", "Ваш запрос на телепортацию к {0} был отменён!"},
                 {"CancelledTarget", "Запрос на телепортацию {0} был отменён!"},
                 {"TPCancelled", "Ваша телепортация отменена!"},
@@ -1778,6 +1786,7 @@ namespace Oxide.Plugins
                 {"NotAllowed", "Ви не можете використовувати цю команду!"},
                 {"Success", "Ви телепортовані до {0}!"},
                 {"SuccessTarget", "{0} телепортований до вас!"},
+                {"BlockedTeleportTarget", "You can't teleport to user \"{0}\", they have you teleport blocked!"},
                 {"Cancelled", "Ваш запит на телепортацію до {0} було скасовано!"},
                 {"CancelledTarget", "Запит на телепортацію {0} було скасовано!"},
                 {"TPCancelled", "Ваш телепорт скасовано!"},
@@ -2866,7 +2875,7 @@ namespace Oxide.Plugins
                 Vis.Entities(monument.transform.position, radius, ents);
                 foreach (BaseEntity entity in ents)
                 {
-                    if (OutOfRange(monument, entity.transform.position, true))
+                    if (entity.OwnerID.IsSteamId() || OutOfRange(monument, entity.transform.position, true))
                     {
                         continue;
                     }
@@ -2944,7 +2953,7 @@ namespace Oxide.Plugins
                 Vis.Entities(monument.transform.position, radius, ents);
                 foreach (BaseEntity entity in ents)
                 {
-                    if (OutOfRange(monument, entity.transform.position, true))
+                    if (entity.OwnerID.IsSteamId() || OutOfRange(monument, entity.transform.position, true))
                     {
                         continue;
                     }
@@ -3091,7 +3100,7 @@ namespace Oxide.Plugins
             CommandTeleportCancel(player.IPlayer, "tpc", new string[0]);
         }
 
-        private bool OutOfRange(MonumentInfo m, Vector3 a, bool checkHeight) => checkHeight && Mathf.Abs(m.transform.position.y - a.y) > 5f || m.Distance(a) > m.Bounds.extents.Max();
+        private bool OutOfRange(MonumentInfo m, Vector3 a, bool checkHeight) => checkHeight && Mathf.Abs(a.y - TerrainMeta.HeightMap.GetHeight(a)) > 5f || m.Distance(a) > m.Bounds.extents.Max() * 0.5f;
 
         private void CommandToggle(IPlayer user, string command, string[] args)
         {
@@ -4100,12 +4109,12 @@ namespace Oxide.Plugins
                 return;
             }
             PrintMsgL(player, "HomeList");
-            ValidateHomes(player, homeData, true);
+            ValidateHomes(player, homeData, true, false);
             foreach (var location in homeData.Locations)
                 PrintMsgL(player, $"{location.Key} {location.Value} {PhoneController.PositionToGridCoord(location.Value)}");
         }
 
-        private void ValidateHomes(BasePlayer player, HomeData homeData, bool flag)
+        private void ValidateHomes(BasePlayer player, HomeData homeData, bool showRemoved, bool showLoc)
         {
             if (config.Home.CheckValidOnList)
             {
@@ -4115,16 +4124,16 @@ namespace Oxide.Plugins
                     var err = CheckFoundation(player.userID, location.Value, "validate");
                     if (err != null)
                     {
-                        if (flag) PrintMsgL(player, err);
+                        if (showRemoved) PrintMsgL(player, err);
                         toRemove.Add(location);
                         continue;
                     }
-                    if (flag) PrintMsgL(player, $"{location.Key} {location.Value} {PhoneController.PositionToGridCoord(location.Value)}");
+                    if (showLoc) PrintMsgL(player, $"{location.Key} {location.Value} {PhoneController.PositionToGridCoord(location.Value)}");
                 }
                 foreach (var loc in toRemove)
                 {
                     Interface.CallHook("OnHomeRemoved", player, loc.Value, loc.Key);
-                    if (flag) PrintMsgL(player, "HomeRemovedInvalid", $"{loc.Key} {loc.Value} ({PhoneController.PositionToGridCoord(loc.Value)}");
+                    if (showRemoved) PrintMsgL(player, "HomeRemovedInvalid", $"{loc.Key} {loc.Value} ({PhoneController.PositionToGridCoord(loc.Value)}");
                     homeData.Locations.Remove(loc.Key);
                     changedHome = true;
                 }
@@ -4304,6 +4313,12 @@ namespace Oxide.Plugins
             {
                 return;
             }
+
+            if (IsBlockedUser(target.userID, player.userID))
+            {
+                PrintMsgL(player, "BlockedTeleportTarget");
+                return;
+            }
             TeleportData tprData;
             if (!_TPR.TryGetValue(player.userID, out tprData))
                 _TPR[player.userID] = tprData = new TeleportData();
@@ -4464,6 +4479,7 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "PendingRequestTarget");
                 return;
             }
+
             if (!config.TPR.UseClans_Friends_Teams || IsInSameClan(player.UserIDString, target.UserIDString) || AreFriends(player.UserIDString, target.UserIDString) || IsOnSameTeam(player.userID, target.userID) || CanBypassRestrictions(player.UserIDString))
             {
                 PlayersRequests[player.userID] = target;
@@ -5651,8 +5667,8 @@ namespace Oxide.Plugins
 
             // credits to @ctv and @Def for their assistance
 
-            player.PauseFlyHackDetection();
-            player.PauseSpeedHackDetection();
+            player.PauseFlyHackDetection(5f);
+            player.PauseSpeedHackDetection(5f);
             player.UpdateActiveItem(default(ItemId));
             player.EnsureDismounted();
             player.Server_CancelGesture();
@@ -5681,7 +5697,10 @@ namespace Oxide.Plugins
 
                 player.ClearEntityQueue(null);
                 player.SendFullSnapshot();
-                //if (player.IsOnGround()) NextTick(player.EndSleeping);
+                if (config.Settings.AutoWakeUp && player.IsOnGround())
+                {
+                    NextTick(player.EndSleeping);
+                }
             }
 
             if (!player._limitedNetworking)
@@ -6153,6 +6172,10 @@ namespace Oxide.Plugins
             if (isHit)
             {
                 var e = hit.GetEntity();
+                if (e.PrefabName.Contains("floor.grill"))
+                {
+                    return false;
+                }
                 if (e is BuildingBlock)
                 {
                     return e.ShortPrefabName.Contains("foundation");
@@ -6256,6 +6279,27 @@ namespace Oxide.Plugins
             if (config.Home.UseFriends && Friends != null && Friends.IsLoaded && Convert.ToBoolean(Friends?.Call("AreFriends", playerId.ToString(), targetId.ToString())))
             {
                 return true;
+            }
+            return false;
+        }
+
+        bool IsBlockedUser(ulong playerid, ulong targetid)
+        {
+            if (config.TPR.UseBlockedUsers && BlockUsers != null && BlockUsers.IsLoaded)
+            {
+#if DEBUG
+                Puts("Is user blocked? {0} / {1}", playerid, targetid);
+#endif
+                if (Convert.ToBoolean(BlockUsers?.CallHook("AreBlockedUsers", playerid, targetid)))
+                {
+#if DEBUG
+                    Puts("  BlockUsers plugin returned true");
+#endif
+                    return true;
+                }
+#if DEBUG
+                Puts("  BlockUsers plugin returned false");
+#endif
             }
             return false;
         }
@@ -6739,7 +6783,7 @@ namespace Oxide.Plugins
                 _Home[player.userID] = homeData = new HomeData();
             }
 
-            ValidateHomes(player, homeData, false);
+            ValidateHomes(player, homeData, false, false);
 
             var limit = GetHigher(player, config.Home.VIPHomesLimits, config.Home.HomesLimit, true);
 
@@ -6756,7 +6800,7 @@ namespace Oxide.Plugins
                 _Home[player.userID] = homeData = new HomeData();
             }
 
-            ValidateHomes(player, homeData, false);
+            ValidateHomes(player, homeData, false, false);
 
             return homeData.Locations;
         }
