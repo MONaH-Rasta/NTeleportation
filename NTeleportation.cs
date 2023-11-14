@@ -19,19 +19,13 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
-    1.3.4:
-    Added `Chat Steam64ID` (76561199056025689)
-    Better wipe detection
-    Fix for players using commands offline in the Rust+ app
-    Fix for teleporting while building blocked
-    Fix for not finding foundation
-    Removed teleport component from TPT command - this command is used only to allow insta TPA
-    Using command /tpr on a friend/ally/team mate will now instantly TPA if enabled by the server and player
+    1.3.5:
+    Fix for tpt toggle
 */
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.4")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.5")]
     class NTeleportation : RustPlugin
     {
         private bool newSave;
@@ -2911,21 +2905,19 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "TPTInfo");
                 return;
             }
-            else
-            {
-                switch (args[0].ToLower())
-                {
-                    case "friend":
-                    case "clan":
-                    case "team":
-                        {
-                            SetDisabled(player, args[0].ToLower());
-                            return;
-                        }
-                }
 
-                PrintMsgL(player, "TPTInfo");
+            switch (args[0].ToLower())
+            {
+                case "friend":
+                case "clan":
+                case "team":
+                    {
+                        SetDisabled(player, args[0].ToLower());
+                        return;
+                    }
             }
+
+            PrintMsgL(player, "TPTInfo");
         }
 
         public bool IsOnSameTeam(ulong playerId, ulong targetId)
@@ -2986,7 +2978,7 @@ namespace Oxide.Plugins
 
         private void OnTeleportRequested(BasePlayer target, BasePlayer player)
         {
-            if (IsInSameClan(target.UserIDString, player.UserIDString) || AreFriends(target.UserIDString, player.UserIDString) || IsOnSameTeam(target.userID, player.userID))
+            if (IsInSameClan(player.UserIDString, target.UserIDString) || AreFriends(player.UserIDString, target.UserIDString) || IsOnSameTeam(player.userID, target.userID))
             {
                 target.SendConsoleCommand("chat.say /tpa");
             }
@@ -2994,7 +2986,12 @@ namespace Oxide.Plugins
 
         bool IsEnabled(string targetId, string value)
         {
-            return !TPT.ContainsKey(targetId) || !TPT[targetId].Contains(value);
+            if (TPT.ContainsKey(targetId) && TPT[targetId].Contains(value))
+            {
+                return false;
+            }
+
+            return true;
         }
 
         void SetDisabled(BasePlayer target, string value)
