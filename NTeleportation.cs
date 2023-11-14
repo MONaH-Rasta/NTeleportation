@@ -18,49 +18,36 @@ using System.Reflection;
 using Oxide.Core.Libraries.Covalence;
 
 /*
+    1.2.2:
+    Fixed tnt command not using arguments
+    Fixed town command not being registered
+    Fixed outpost and bandit location not being set after wipe, which required plugin to be reloaded
+    Fixed auto generation for bandit and outpost
+    Limits tweaked again to favor the upper limit @xanela @FuelStream
+    Outpost and bandit commands will now show a disabled message when not enabled in the config, instead of being disabled entirely
+
     1.2.1:
     Configuration rewritten to fix issues with resetting, being difficult to read, and to meet standards. Your config will convert automatically.
-
     Added announcement to server console on additions/removals after updating
-
     Added messages for bandit and outpost when using /tpinfo
-
     Added `Settings > Check Boundaries On Teleport X Y Z (true)`
-
     Added `Settings > TPR > Allow TPB (true)`
-
     Added `Settings > Draw Sphere On Set Home (true)`
-
     Added `Settings > Block Teleport (NoEscape) (false)`
-
     Added `Settings > Block Teleport (ZoneManager) (false)`
-
     Added multiple null checks
-
     Added use of cached variables for true, false, up, down, zero
-
     Added command `/spm` as a tool for admins @Tanki
-
     Fixed `/tp player x y z` @Marcus101RR
-
     Fixed AutoGenBandit not generating
-
     Fixed AutoGenBandit position
-
     Fixed AutoGenOutpost not generating
-
     Fixed issues with interrupt monument not working correctly
-
     Removed test code
-
     Removed some unused variables
-
     Rewrote various bits of outdated code
-
     Converted all commands to covalence
-
     Added command `tnt [commandname]` to toggle enabling and disabling of commands. Usable from consoles, and in-game chat. Requires admin.
-
     Limits tweaked to favor the upper limit @xanela
 
     1.1.7:
@@ -128,7 +115,7 @@ using Oxide.Core.Libraries.Covalence;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.1")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.2")]
     class NTeleportation : RustPlugin
     {
         private const bool True = true;
@@ -209,7 +196,7 @@ namespace Oxide.Plugins
 
         #region Configuration
 
-        private static Configuration _config;
+        private static Configuration config;
 
         private class Configuration
         {
@@ -648,7 +635,8 @@ namespace Oxide.Plugins
                 DailyLimit = 5,
                 VIPDailyLimits = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } },
                 VIPCooldowns = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } },
-                VIPCountdowns = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } }
+                VIPCountdowns = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } },
+                Location = Vector3.zero
             };
 
             [JsonProperty(PropertyName = "Bandit")]
@@ -659,7 +647,8 @@ namespace Oxide.Plugins
                 DailyLimit = 5,
                 VIPDailyLimits = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } },
                 VIPCooldowns = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } },
-                VIPCountdowns = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } }
+                VIPCountdowns = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } },
+                Location = Vector3.zero
             };
 
             [JsonProperty(PropertyName = "Version")]
@@ -701,13 +690,13 @@ namespace Oxide.Plugins
                     }
                     catch { }
                 }
-                _config = Config.ReadObject<Configuration>();
-                if (_config == null) throw new Exception();
+                config = Config.ReadObject<Configuration>();
+                if (config == null) throw new Exception();
 
                 var oldKeys = Config.ToDictionary(x => x.Key, x => x.Value).Keys;
-                var newKeys = _config.ToDictionary().Keys;
+                var newKeys = config.ToDictionary().Keys;
 
-                foreach(string key in newKeys)
+                foreach (string key in newKeys)
                 {
                     if (!oldKeys.Contains(key))
                     {
@@ -729,40 +718,40 @@ namespace Oxide.Plugins
                 LoadDefaultConfig();
             }
 
-            if (_config.Settings.MaximumTemp < 1)
+            if (config.Settings.MaximumTemp < 1)
             {
-                _config.Settings.MaximumTemp = 40f;
+                config.Settings.MaximumTemp = 40f;
             }
 
-            if (_config.Settings.DefaultMonumentSize < 1)
+            if (config.Settings.DefaultMonumentSize < 1)
             {
-                _config.Settings.DefaultMonumentSize = 50f;
+                config.Settings.DefaultMonumentSize = 50f;
             }
 
-            if (_config.Settings.CaveDistanceSmall < 1)
+            if (config.Settings.CaveDistanceSmall < 1)
             {
-                _config.Settings.CaveDistanceSmall = 40f;
+                config.Settings.CaveDistanceSmall = 40f;
             }
 
-            if (_config.Settings.CaveDistanceMedium < 1)
+            if (config.Settings.CaveDistanceMedium < 1)
             {
-                _config.Settings.CaveDistanceMedium = 60f;
+                config.Settings.CaveDistanceMedium = 60f;
             }
 
-            if (_config.Settings.CaveDistanceLarge < 1)
+            if (config.Settings.CaveDistanceLarge < 1)
             {
-                _config.Settings.CaveDistanceLarge = 100f;
+                config.Settings.CaveDistanceLarge = 100f;
             }
 
-            _config.Version = Version;
+            config.Version = Version;
 
             SaveConfig();
         }
 
-        protected override void SaveConfig() => Config.WriteObject(_config);
+        protected override void SaveConfig() => Config.WriteObject(config);
 
-        protected override void LoadDefaultConfig() => _config = new Configuration();
-        
+        protected override void LoadDefaultConfig() => config = new Configuration();
+
         #endregion
 
         class ConvertData
@@ -1760,28 +1749,26 @@ namespace Oxide.Plugins
             permission.RegisterPermission(PermCraftOutpost, this);
             permission.RegisterPermission(PermCraftBandit, this);
             permission.RegisterPermission(PermCraftTpR, this);
-            foreach (var key in _config.Home.VIPCooldowns.Keys)
+            foreach (var key in config.Home.VIPCooldowns.Keys)
                 if (!permission.PermissionExists(key, this)) permission.RegisterPermission(key, this);
-            foreach (var key in _config.Home.VIPCountdowns.Keys)
+            foreach (var key in config.Home.VIPCountdowns.Keys)
                 if (!permission.PermissionExists(key, this)) permission.RegisterPermission(key, this);
-            foreach (var key in _config.Home.VIPDailyLimits.Keys)
+            foreach (var key in config.Home.VIPDailyLimits.Keys)
                 if (!permission.PermissionExists(key, this)) permission.RegisterPermission(key, this);
-            foreach (var key in _config.Home.VIPHomesLimits.Keys)
+            foreach (var key in config.Home.VIPHomesLimits.Keys)
                 if (!permission.PermissionExists(key, this)) permission.RegisterPermission(key, this);
-            foreach (var key in _config.TPR.VIPCooldowns.Keys)
+            foreach (var key in config.TPR.VIPCooldowns.Keys)
                 if (!permission.PermissionExists(key, this)) permission.RegisterPermission(key, this);
-            foreach (var key in _config.TPR.VIPCountdowns.Keys)
+            foreach (var key in config.TPR.VIPCountdowns.Keys)
                 if (!permission.PermissionExists(key, this)) permission.RegisterPermission(key, this);
-            foreach (var key in _config.TPR.VIPDailyLimits.Keys)
+            foreach (var key in config.TPR.VIPDailyLimits.Keys)
                 if (!permission.PermissionExists(key, this)) permission.RegisterPermission(key, this);
-            foreach (var key in _config.Town.VIPCooldowns.Keys)
+            foreach (var key in config.Town.VIPCooldowns.Keys)
                 if (!permission.PermissionExists(key, this)) permission.RegisterPermission(key, this);
-            foreach (var key in _config.Town.VIPCountdowns.Keys)
+            foreach (var key in config.Town.VIPCountdowns.Keys)
                 if (!permission.PermissionExists(key, this)) permission.RegisterPermission(key, this);
-            foreach (var key in _config.Town.VIPDailyLimits.Keys)
+            foreach (var key in config.Town.VIPDailyLimits.Keys)
                 if (!permission.PermissionExists(key, this)) permission.RegisterPermission(key, this);
-
-            FindMonuments();
         }
 
         private DynamicConfigFile GetFile(string name)
@@ -1799,19 +1786,19 @@ namespace Oxide.Plugins
             Subscribe(nameof(OnPlayerDisconnected));
 
             boundary = TerrainMeta.Size.x / 2;
-            CheckPerms(_config.Home.VIPHomesLimits);
-            CheckPerms(_config.Home.VIPDailyLimits);
-            CheckPerms(_config.Home.VIPCooldowns);
-            CheckPerms(_config.TPR.VIPDailyLimits);
-            CheckPerms(_config.TPR.VIPCooldowns);
-            CheckPerms(_config.Town.VIPDailyLimits);
-            CheckPerms(_config.Town.VIPCooldowns);
-            CheckPerms(_config.Outpost.VIPDailyLimits);
-            CheckPerms(_config.Outpost.VIPCooldowns);
-            CheckPerms(_config.Bandit.VIPDailyLimits);
-            CheckPerms(_config.Bandit.VIPCooldowns);
+            CheckPerms(config.Home.VIPHomesLimits);
+            CheckPerms(config.Home.VIPDailyLimits);
+            CheckPerms(config.Home.VIPCooldowns);
+            CheckPerms(config.TPR.VIPDailyLimits);
+            CheckPerms(config.TPR.VIPCooldowns);
+            CheckPerms(config.Town.VIPDailyLimits);
+            CheckPerms(config.Town.VIPCooldowns);
+            CheckPerms(config.Outpost.VIPDailyLimits);
+            CheckPerms(config.Outpost.VIPCooldowns);
+            CheckPerms(config.Bandit.VIPDailyLimits);
+            CheckPerms(config.Bandit.VIPCooldowns);
 
-            foreach (var item in _config.Settings.BlockedItems)
+            foreach (var item in config.Settings.BlockedItems)
             {
                 var definition = ItemManager.FindItemDefinition(item.Key);
                 if (definition == null)
@@ -1822,11 +1809,14 @@ namespace Oxide.Plugins
                 ReverseBlockedItems[definition.itemid] = item.Value;
             }
 
-            if (_config.Settings.OutpostEnabled && CompoundTeleport == null)
-                AddCovalenceCommand("outpost", nameof(CommandOutpost));
-
-            if (_config.Settings.BanditEnabled && CompoundTeleport == null)
-                AddCovalenceCommand("bandit", nameof(CommandBandit));
+            timer.Once(2f, () =>
+            {
+                if (CompoundTeleport == null)
+                {
+                    AddCovalenceCommand("outpost", nameof(CommandOutpost));
+                    AddCovalenceCommand("bandit", nameof(CommandBandit));
+                }
+            });
 
             AddCovalenceCommand("tnt", nameof(CommandToggle));
             AddCovalenceCommand("tp", nameof(CommandTeleport));
@@ -1853,21 +1843,25 @@ namespace Oxide.Plugins
             AddCovalenceCommand("teleport.toplayer", nameof(CommandTeleportII));
             AddCovalenceCommand("teleport.topos", nameof(CommandTeleportII));
             AddCovalenceCommand("teleport.importhomes", nameof(CommandImportHomes));
+            AddCovalenceCommand("town", nameof(CommandTown));
             AddCovalenceCommand("spm", nameof(CommandSphereMonuments));
+
+            FindMonuments();  // 1.2.2 location moved from Loaded() to fix outpost and bandit location not being set after a wipe
         }
 
-        List<string> validCommands = new List<string> { "outpost", "bandit", "tp", "home", "sethome", "listhomes", "tpn", "tpl", "tpsave", "tpremove", "tpb", "removehome", "radiushome", "deletehome", "tphome", "homehomes", "tpt", "tpr", "tpa", "wipehomes", "tphelp", "tpinfo", "tpc", "teleport.toplayer", "teleport.topos", "teleport.importhomes", "spm" };
+        List<string> validCommands = new List<string> { "outpost", "bandit", "tp", "home", "sethome", "listhomes", "tpn", "tpl", "tpsave", "tpremove", "tpb", "removehome", "radiushome", "deletehome", "tphome", "homehomes", "tpt", "tpr", "tpa", "wipehomes", "tphelp", "tpinfo", "tpc", "teleport.toplayer", "teleport.topos", "teleport.importhomes", "town", "spm" };
 
         void OnNewSave(string strFilename)
         {
-            if (_config.Settings.WipeOnUpgradeOrChange)
+            if (config.Settings.WipeOnUpgradeOrChange)
             {
                 Puts("Rust was upgraded or map changed - clearing homes, town, outpost and bandit!");
                 Home.Clear();
                 changedHome = True;
-                _config.Town.Location = Zero;
-                _config.Outpost.Location = Zero;
-                _config.Bandit.Location = Zero;
+                config.Town.Location = Zero;
+                config.Outpost.Location = Zero;
+                config.Bandit.Location = Zero;
+                SaveConfig();
             }
             else
             {
@@ -1908,6 +1902,10 @@ namespace Oxide.Plugins
             {
                 Clans = plugin;
             }
+            if (plugin.Name == "CompoundTeleport")
+            {
+                CompoundTeleport = plugin;
+            }
         }
 
         void OnPluginUnloaded(Plugin plugin)
@@ -1928,6 +1926,10 @@ namespace Oxide.Plugins
             {
                 Clans = null;
             }
+            if (plugin.Name == "CompoundTeleport")
+            {
+                CompoundTeleport = null;
+            }
         }
 
         void OnEntityTakeDamage(BaseCombatEntity entity, HitInfo hitInfo)
@@ -1942,15 +1944,15 @@ namespace Oxide.Plugins
             TeleportTimer teleportTimer;
             if (!TeleportTimers.TryGetValue(player.userID, out teleportTimer)) return;
             DamageType major = hitInfo.damageTypes.GetMajorityDamageType();
-            if (!_config.Settings.Interrupt.Hurt) return;
+            if (!config.Settings.Interrupt.Hurt) return;
             NextTick(() =>
             {
                 if (!player) return;
                 if (!hitInfo.hasDamage || hitInfo.damageTypes.Total() <= 0) return;
                 // 1.0.84 new checks for cold/heat based on major damage for the player
-                if (major == DamageType.Cold && _config.Settings.Interrupt.Cold)
+                if (major == DamageType.Cold && config.Settings.Interrupt.Cold)
                 {
-                    if (player.metabolism.temperature.value <= _config.Settings.MinimumTemp)
+                    if (player.metabolism.temperature.value <= config.Settings.MinimumTemp)
                     {
                         PrintMsgL(teleportTimer.OriginPlayer, "TPTooCold");
                         if (teleportTimer.TargetPlayer != null)
@@ -1961,9 +1963,9 @@ namespace Oxide.Plugins
                         TeleportTimers.Remove(player.userID);
                     }
                 }
-                else if (major == DamageType.Heat && _config.Settings.Interrupt.Hot)
+                else if (major == DamageType.Heat && config.Settings.Interrupt.Hot)
                 {
-                    if (player.metabolism.temperature.value >= _config.Settings.MaximumTemp)
+                    if (player.metabolism.temperature.value >= config.Settings.MaximumTemp)
                     {
                         PrintMsgL(teleportTimer.OriginPlayer, "TPTooHot");
                         if (teleportTimer.TargetPlayer != null)
@@ -2091,7 +2093,7 @@ namespace Oxide.Plugins
 
             return _sb.ToString();
         }
-        
+
         bool setextra = False;
         void FindMonuments()
         {
@@ -2099,7 +2101,8 @@ namespace Oxide.Plugins
             string name = null;
             foreach (var monument in UnityEngine.Object.FindObjectsOfType<MonumentInfo>())
             {
-                name = monument.displayPhrase.english;
+                var monPos = monument.transform.position;
+                name = monument.displayPhrase.english.TrimEnd();
                 realWidth = monument.name == "OilrigAI" ? 100f : monument.name == "OilrigAI2" ? 200f : 0f;
 #if DEBUG
                 Puts($"Found {name}, extents {monument.Bounds.extents}");
@@ -2111,61 +2114,60 @@ namespace Oxide.Plugins
                     Puts($"  corrected to {realWidth}");
 #endif
                 }
-
+                
                 if (monument.name.Contains("cave"))
                 {
 #if DEBUG
                     Puts("  Adding to cave list");
 #endif
                     if (caves.ContainsKey(name)) name += RandomString();
-                    caves.Add(name, monument.transform.position);
+                    caves.Add(name, monPos);
                 }
-                else if (monument.name.Contains("compound") && _config.Settings.AutoGenOutpost)
+                else if (monument.name.Contains("compound") && config.Settings.AutoGenOutpost)
                 {
 #if DEBUG
                     Puts("  Adding Outpost target");
 #endif
-                    var ents = Pool.Get<List<BaseEntity>>();
-                    Vis.Entities<BaseEntity>(monument.transform.position, 50, ents);
-                    foreach (BaseEntity entity in ents)
-                    {
-                        if (entity.name.Contains("piano") || entity.name.Contains("chair"))
-                        {
-                            _config.Outpost.Location = entity.transform.position + new Vector3(0f, 1f, 0f);
-                            setextra = True;
-                            break;
-                        }
-                    }
-                    if (!setextra) _config.Settings.OutpostEnabled = False;
-                    Pool.Free(ref ents);
-                }
-                else if (monument.name.Contains("bandit") && _config.Settings.AutoGenBandit)
-                {
-#if DEBUG
-                    Puts("  Adding BanditTown target");
-#endif
-                    var ents = Pool.Get<List<BaseEntity>>();
-                    Vis.Entities<BaseEntity>(monument.transform.position, 50, ents);
+                    var ents = new List<BaseEntity>();
+                    Vis.Entities<BaseEntity>(monPos, 50, ents);
                     foreach (BaseEntity entity in ents)
                     {
                         if (entity.name.Contains("workbench") || entity.name.Contains("chair") || entity.name.Contains("piano"))
                         {
-                            _config.Bandit.Location = entity.name.Contains("piano") ? entity.transform.position + new Vector3(-1f, 1f, -1f) : entity.transform.position;
+                            config.Outpost.Location = entity.transform.position +
+                                (entity.name.Contains("piano") ? new Vector3(-1f, 1f, -1f) : new Vector3(0f, 1f, 0f));
                             setextra = True;
                             break;
                         }
                     }
-                    if (!setextra) _config.Settings.BanditEnabled = False;
-                    Pool.Free(ref ents);
+                    if (!setextra) config.Settings.OutpostEnabled = False;
+                }
+                else if (monument.name.Contains("bandit_town") && config.Settings.AutoGenBandit)
+                {
+#if DEBUG
+                    Puts("  Adding BanditTown target");
+#endif
+                    var ents = new List<BaseEntity>();
+                    Vis.Entities<BaseEntity>(monPos, 50, ents);
+                    foreach (BaseEntity entity in ents)
+                    {
+                        if (entity.name.Contains("workbench") || entity.name.Contains("chair") || entity.name.Contains("piano")) // no piano there yet?
+                        {
+                            config.Bandit.Location = entity.transform.position +
+                                (entity.name.Contains("piano") ? new Vector3(-1f, 1f, -1f) : new Vector3(0f, 1f, 0f));
+                            setextra = True;
+                        }
+                    }
+                    if (!setextra) config.Settings.BanditEnabled = False;
                 }
                 else
                 {
                     if (monuments.ContainsKey(name)) name += ":" + RandomString(5, 5);
                     if (monument.name.Contains("power_sub")) name = monument.name.Substring(monument.name.LastIndexOf("/") + 1).Replace(".prefab", "") + ":" + RandomString(5, 5);
                     float radius = GetMonumentFloat(name);
-                    monuments[name] = new MonInfo() { Position = monument.transform.position, Radius = radius };
+                    monuments[name] = new MonInfo() { Position = monPos, Radius = radius };
 #if DEBUG
-                    Puts($"Adding Monument: {name}, pos: {monument.transform.position}, size: {radius}");
+                    Puts($"Adding Monument: {name}, pos: {monPos}, size: {radius}");
 #endif
                 }
             }
@@ -2187,24 +2189,27 @@ namespace Oxide.Plugins
                 return;
             }
 
-            if (!validCommands.Contains(args[0].ToLower()))
+            string arg = args[0].ToLower();
+
+            if (!validCommands.Contains(arg))
             {
                 p.Reply("Invalid command name: {0}", null, string.Join(", ", validCommands.ToList()));
                 return;
             }
 
-            string arg = args[0].ToLower();
-
             if (arg == command.ToLower()) return;
-            if (!disabledData.DisabledCommands.Remove("tp")) disabledData.DisabledCommands.Add("tp");
+
+            if (!disabledData.DisabledCommands.Contains(arg))
+                disabledData.DisabledCommands.Add(arg);
+            else disabledData.DisabledCommands.Remove(arg);
 
             dataDisabled.WriteObject(disabledData);
-            p.Reply("{0} {1}", null, disabledData.DisabledCommands.Contains("tp") ? "Disabled:" : "Enabled:", arg);
+            p.Reply("{0} {1}", null, disabledData.DisabledCommands.Contains(arg) ? "Disabled:" : "Enabled:", arg);
         }
 
         private void CommandTeleport(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTp)) return;
             BasePlayer target;
@@ -2226,7 +2231,7 @@ namespace Oxide.Plugins
                     Teleport(player, target);
                     PrintMsgL(player, "AdminTP", target.displayName);
                     Puts(_("LogTeleport", null, player.displayName, target.displayName));
-                    if (_config.Admin.AnnounceTeleportToTarget)
+                    if (config.Admin.AnnounceTeleportToTarget)
                         PrintMsgL(target, "AdminTPTarget", player.displayName);
                     break;
                 case 2:
@@ -2242,7 +2247,7 @@ namespace Oxide.Plugins
                     Teleport(origin, target);
                     PrintMsgL(player, "AdminTPPlayers", origin.displayName, target.displayName);
                     PrintMsgL(origin, "AdminTPPlayer", player.displayName, target.displayName);
-                    if (_config.Admin.AnnounceTeleportToTarget)
+                    if (config.Admin.AnnounceTeleportToTarget)
                         PrintMsgL(target, "AdminTPPlayerTarget", player.displayName, origin.displayName);
                     Puts(_("LogTeleportPlayer", null, player.displayName, origin.displayName, target.displayName));
                     break;
@@ -2252,7 +2257,7 @@ namespace Oxide.Plugins
                         PrintMsgL(player, "InvalidCoordinates");
                         return;
                     }
-                    if (_config.Settings.CheckBoundaries && !CheckBoundaries(x, y, z)) // added this option because I HATE boundaries
+                    if (config.Settings.CheckBoundaries && !CheckBoundaries(x, y, z)) // added this option because I HATE boundaries
                     {
                         PrintMsgL(player, "AdminTPOutOfBounds");
                         PrintMsgL(player, "AdminTPBoundaries", boundary);
@@ -2285,7 +2290,7 @@ namespace Oxide.Plugins
                     else
                     {
                         PrintMsgL(player, "AdminTPTargetCoordinates", target.displayName, player.transform.position);
-                        if (_config.Admin.AnnounceTeleportToTarget)
+                        if (config.Admin.AnnounceTeleportToTarget)
                             PrintMsgL(target, "AdminTPTargetCoordinatesTarget", player.displayName, player.transform.position);
                         Puts(_("LogTeleportPlayer", null, player.displayName, target.displayName, player.transform.position));
                     }
@@ -2298,7 +2303,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportNear(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpN)) return;
             switch (args.Length)
@@ -2318,7 +2323,7 @@ namespace Oxide.Plugins
                     }
                     int distance;
                     if (!int.TryParse(args[1], out distance))
-                        distance = _config.Admin.TeleportNearDefaultDistance;
+                        distance = config.Admin.TeleportNearDefaultDistance;
                     float x = UnityEngine.Random.Range(-distance, distance);
                     var z = (float)System.Math.Sqrt(System.Math.Pow(distance, 2) - System.Math.Pow(x, 2));
                     var destination = target.transform.position;
@@ -2327,7 +2332,7 @@ namespace Oxide.Plugins
                     Teleport(player, GetGroundBuilding(destination));
                     PrintMsgL(player, "AdminTP", target.displayName);
                     Puts(_("LogTeleport", null, player.displayName, target.displayName));
-                    if (_config.Admin.AnnounceTeleportToTarget)
+                    if (config.Admin.AnnounceTeleportToTarget)
                         PrintMsgL(target, "AdminTPTarget", player.displayName);
                     break;
                 default:
@@ -2338,7 +2343,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportLocation(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpL)) return;
             AdminData adminData;
@@ -2372,7 +2377,7 @@ namespace Oxide.Plugins
 
         private void CommandSaveTeleportLocation(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpSave)) return;
             if (args.Length != 1)
@@ -2392,7 +2397,7 @@ namespace Oxide.Plugins
             var positionCoordinates = player.transform.position;
             foreach (var loc in adminData.Locations)
             {
-                if ((positionCoordinates - loc.Value).magnitude < _config.Admin.LocationRadius)
+                if ((positionCoordinates - loc.Value).magnitude < config.Admin.LocationRadius)
                 {
                     PrintMsgL(player, "LocationExistsNearby", loc.Key);
                     return;
@@ -2405,7 +2410,7 @@ namespace Oxide.Plugins
 
         private void CommandRemoveTeleportLocation(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpRemove)) return;
             if (args.Length != 1)
@@ -2430,7 +2435,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportBack(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpB)) return;
             if (args.Length != 0)
@@ -2454,9 +2459,9 @@ namespace Oxide.Plugins
 
         private void CommandSetHome(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowed(player, PermHome) || !_config.Settings.HomesEnabled) return;
+            if (!player || !IsAllowed(player, PermHome) || !config.Settings.HomesEnabled) return;
             if (args.Length != 1)
             {
                 PrintMsgL(player, "SyntaxCommandSetHome");
@@ -2481,8 +2486,8 @@ namespace Oxide.Plugins
             HomeData homeData;
             if (!Home.TryGetValue(player.userID, out homeData))
                 Home[player.userID] = homeData = new HomeData();
-            var limit = GetHigher(player, _config.Home.VIPHomesLimits, _config.Home.HomesLimit);
-            if (homeData.Locations.Count >= limit)
+            var limit = GetHigher(player, config.Home.VIPHomesLimits, config.Home.HomesLimit, true);
+            if (limit > 0 && homeData.Locations.Count >= limit)
             {
                 PrintMsgL(player, "HomeMaxLocations", limit);
                 return;
@@ -2496,7 +2501,7 @@ namespace Oxide.Plugins
             var positionCoordinates = player.transform.position;
             foreach (var loc in homeData.Locations)
             {
-                if ((positionCoordinates - loc.Value).magnitude < _config.Home.LocationRadius)
+                if ((positionCoordinates - loc.Value).magnitude < config.Home.LocationRadius)
                 {
                     PrintMsgL(player, "HomeExistsNearby", loc.Key);
                     return;
@@ -2509,7 +2514,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            if (player.IsAdmin && _config.Settings.DrawHomeSphere) player.SendConsoleCommand("ddraw.sphere", 30f, Color.blue, GetGround(positionCoordinates), 2.5f);
+            if (player.IsAdmin && config.Settings.DrawHomeSphere) player.SendConsoleCommand("ddraw.sphere", 30f, Color.blue, GetGround(positionCoordinates), 2.5f);
 
             err = CheckFoundation(player.userID, positionCoordinates);
             if (err != null)
@@ -2531,8 +2536,8 @@ namespace Oxide.Plugins
 
         private void CommandRemoveHome(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
-            if (!_config.Settings.HomesEnabled) return;
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (!config.Settings.HomesEnabled) return;
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowed(player, PermHome)) return;
             if (args.Length != 1)
@@ -2557,8 +2562,8 @@ namespace Oxide.Plugins
 
         private void CommandHome(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
-            if (!_config.Settings.HomesEnabled) return;
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (!config.Settings.HomesEnabled) return;
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowed(player, PermHome)) return;
             if (args.Length == 0)
@@ -2601,7 +2606,7 @@ namespace Oxide.Plugins
 
         private void CommandHomeRadius(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermRadiusHome)) return;
             float radius;
@@ -2640,7 +2645,7 @@ namespace Oxide.Plugins
 
         private void CommandHomeDelete(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermDeleteHome)) return;
             if (args.Length != 2)
@@ -2662,7 +2667,7 @@ namespace Oxide.Plugins
 
         private void CommandHomeAdminTP(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpHome)) return;
             if (args.Length != 2)
@@ -2686,8 +2691,8 @@ namespace Oxide.Plugins
         // Check that plugins are available and enabled for CheckEconomy()
         private bool UseEconomy()
         {
-            if ((_config.Settings.UseEconomics && Economics) ||
-                (_config.Settings.UseServerRewards && ServerRewards))
+            if ((config.Settings.UseEconomics && Economics) ||
+                (config.Settings.UseServerRewards && ServerRewards))
             {
                 return True;
             }
@@ -2701,7 +2706,7 @@ namespace Oxide.Plugins
             bool foundmoney = False;
 
             // Check Economics first.  If not in use or balance low, check ServerRewards below
-            if (_config.Settings.UseEconomics && Economics)
+            if (config.Settings.UseEconomics && Economics)
             {
                 balance = (double)Economics?.CallHook("Balance", player.UserIDString);
                 if (balance >= bypass)
@@ -2720,7 +2725,7 @@ namespace Oxide.Plugins
             }
 
             // No money via Economics, or plugin not in use.  Try ServerRewards.
-            if (_config.Settings.UseServerRewards && ServerRewards)
+            if (config.Settings.UseServerRewards && ServerRewards)
             {
                 object bal = ServerRewards?.Call("CheckPoints", player.userID);
                 balance = Convert.ToDouble(bal);
@@ -2752,13 +2757,13 @@ namespace Oxide.Plugins
             if (disabledData.DisabledCommands.Contains(command.ToLower())) { player.ChatMessage("Disabled command."); return; }
             if (!IsAllowed(player, PermHome)) return;
             bool paidmoney = False;
-            if (!_config.Settings.HomesEnabled) return;
+            if (!config.Settings.HomesEnabled) return;
             if (args.Length < 1)
             {
                 PrintMsgL(player, "SyntaxCommandHome");
                 return;
             }
-            var err = CheckPlayer(player, _config.Home.UsableOutOfBuildingBlocked, CanCraftHome(player), True, "home");
+            var err = CheckPlayer(player, config.Home.UsableOutOfBuildingBlocked, CanCraftHome(player), True, "home");
             if (err != null)
             {
                 PrintMsgL(player, err);
@@ -2776,7 +2781,7 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "HomeNotFound");
                 return;
             }
-            err = CheckFoundation(player.userID, location) ?? CheckTargetLocation(player, location, _config.Home.UsableIntoBuildingBlocked, _config.Home.CupOwnerAllowOnBuildingBlocked);
+            err = CheckFoundation(player.userID, location) ?? CheckTargetLocation(player, location, config.Home.UsableIntoBuildingBlocked, config.Home.CupOwnerAllowOnBuildingBlocked);
             if (err != null)
             {
                 PrintMsgL(player, "HomeRemovedInvalid", args[0]);
@@ -2799,12 +2804,12 @@ namespace Oxide.Plugins
                 homeData.Teleports.Amount = 0;
                 homeData.Teleports.Date = currentDate;
             }
-            var cooldown = GetLower(player, _config.Home.VIPCooldowns, _config.Home.Cooldown);
+            var cooldown = GetLower(player, config.Home.VIPCooldowns, config.Home.Cooldown);
 
             if (cooldown > 0 && timestamp - homeData.Teleports.Timestamp < cooldown)
             {
                 var cmdSent = "";
-                bool foundmoney = CheckEconomy(player, _config.Home.Bypass);
+                bool foundmoney = CheckEconomy(player, config.Home.Bypass);
                 try
                 {
                     cmdSent = args[1].ToLower();
@@ -2812,25 +2817,25 @@ namespace Oxide.Plugins
                 catch { }
 
                 bool payalso = False;
-                if (_config.Home.Pay > 0)
+                if (config.Home.Pay > 0)
                 {
                     payalso = True;
                 }
-                if ((_config.Settings.BypassCMD != null) && (cmdSent == _config.Settings.BypassCMD.ToLower()))
+                if ((config.Settings.BypassCMD != null) && (cmdSent == config.Settings.BypassCMD.ToLower()))
                 {
                     if (foundmoney)
                     {
-                        CheckEconomy(player, _config.Home.Bypass, True);
+                        CheckEconomy(player, config.Home.Bypass, True);
                         paidmoney = True;
-                        PrintMsgL(player, "HomeTPCooldownBypass", _config.Home.Bypass);
+                        PrintMsgL(player, "HomeTPCooldownBypass", config.Home.Bypass);
                         if (payalso)
                         {
-                            PrintMsgL(player, "PayToHome", _config.Home.Pay);
+                            PrintMsgL(player, "PayToHome", config.Home.Pay);
                         }
                     }
                     else
                     {
-                        PrintMsgL(player, "HomeTPCooldownBypassF", _config.Home.Bypass);
+                        PrintMsgL(player, "HomeTPCooldownBypassF", config.Home.Bypass);
                         return;
                     }
                 }
@@ -2838,10 +2843,10 @@ namespace Oxide.Plugins
                 {
                     var remain = cooldown - (timestamp - homeData.Teleports.Timestamp);
                     PrintMsgL(player, "HomeTPCooldown", FormatTime(remain));
-                    if (_config.Home.Bypass > 0 && _config.Settings.BypassCMD != null)
+                    if (config.Home.Bypass > 0 && config.Settings.BypassCMD != null)
                     {
-                        PrintMsgL(player, "HomeTPCooldownBypassP", _config.Home.Bypass);
-                        PrintMsgL(player, "HomeTPCooldownBypassP2", _config.Settings.BypassCMD);
+                        PrintMsgL(player, "HomeTPCooldownBypassP", config.Home.Bypass);
+                        PrintMsgL(player, "HomeTPCooldownBypassP2", config.Settings.BypassCMD);
                     }
                     return;
                 }
@@ -2852,7 +2857,7 @@ namespace Oxide.Plugins
                     return;
                 }
             }
-            var limit = GetHigher(player, _config.Home.VIPDailyLimits, _config.Home.DailyLimit);
+            var limit = GetHigher(player, config.Home.VIPDailyLimits, config.Home.DailyLimit, true);
             if (limit > 0 && homeData.Teleports.Amount >= limit)
             {
                 PrintMsgL(player, "HomeTPLimitReached", limit);
@@ -2876,7 +2881,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            var countdown = GetLower(player, _config.Home.VIPCountdowns, _config.Home.Countdown);
+            var countdown = GetLower(player, config.Home.VIPCountdowns, config.Home.Countdown);
             TeleportTimers[player.userID] = new TeleportTimer
             {
                 OriginPlayer = player,
@@ -2885,7 +2890,7 @@ namespace Oxide.Plugins
 #if DEBUG
                     Puts("Calling CheckPlayer from cmdChatHomeTP");
 #endif
-                    err = CheckPlayer(player, _config.Home.UsableOutOfBuildingBlocked, CanCraftHome(player), True, "home");
+                    err = CheckPlayer(player, config.Home.UsableOutOfBuildingBlocked, CanCraftHome(player), True, "home");
                     if (err != null)
                     {
                         PrintMsgL(player, "Interrupted");
@@ -2893,7 +2898,7 @@ namespace Oxide.Plugins
                         if (paidmoney)
                         {
                             paidmoney = False;
-                            CheckEconomy(player, _config.Home.Bypass, False, True);
+                            CheckEconomy(player, config.Home.Bypass, False, True);
                         }
                         TeleportTimers.Remove(player.userID);
                         return;
@@ -2906,7 +2911,7 @@ namespace Oxide.Plugins
                         if (paidmoney)
                         {
                             paidmoney = False;
-                            CheckEconomy(player, _config.Home.Bypass, False, True);
+                            CheckEconomy(player, config.Home.Bypass, False, True);
                         }
                         TeleportTimers.Remove(player.userID);
                         return;
@@ -2919,12 +2924,12 @@ namespace Oxide.Plugins
                         if (paidmoney)
                         {
                             paidmoney = False;
-                            CheckEconomy(player, _config.Home.Bypass, False, True);
+                            CheckEconomy(player, config.Home.Bypass, False, True);
                         }
                         TeleportTimers.Remove(player.userID);
                         return;
                     }
-                    err = CheckFoundation(player.userID, location) ?? CheckTargetLocation(player, location, _config.Home.UsableIntoBuildingBlocked, _config.Home.CupOwnerAllowOnBuildingBlocked);
+                    err = CheckFoundation(player.userID, location) ?? CheckTargetLocation(player, location, config.Home.UsableIntoBuildingBlocked, config.Home.CupOwnerAllowOnBuildingBlocked);
                     if (err != null)
                     {
                         PrintMsgL(player, "HomeRemovedInvalid", args[0]);
@@ -2933,7 +2938,7 @@ namespace Oxide.Plugins
                         if (paidmoney)
                         {
                             paidmoney = False;
-                            CheckEconomy(player, _config.Home.Bypass, False, True);
+                            CheckEconomy(player, config.Home.Bypass, False, True);
                         }
                         return;
                     }
@@ -2946,24 +2951,24 @@ namespace Oxide.Plugins
                         if (paidmoney)
                         {
                             paidmoney = False;
-                            CheckEconomy(player, _config.Home.Bypass, False, True);
+                            CheckEconomy(player, config.Home.Bypass, False, True);
                         }
                         return;
                     }
                     if (UseEconomy())
                     {
-                        if (_config.Home.Pay > 0 && !CheckEconomy(player, _config.Home.Pay))
+                        if (config.Home.Pay > 0 && !CheckEconomy(player, config.Home.Pay))
                         {
                             PrintMsgL(player, "Interrupted");
-                            PrintMsgL(player, "TPNoMoney", _config.Home.Pay);
+                            PrintMsgL(player, "TPNoMoney", config.Home.Pay);
 
                             TeleportTimers.Remove(player.userID);
                             return;
                         }
-                        else if (_config.Home.Pay > 0)
+                        else if (config.Home.Pay > 0)
                         {
-                            var w = CheckEconomy(player, (double)_config.Home.Pay, True);
-                            PrintMsgL(player, "TPMoney", (double)_config.Home.Pay);
+                            var w = CheckEconomy(player, (double)config.Home.Pay, True);
+                            PrintMsgL(player, "TPMoney", (double)config.Home.Pay);
                         }
                     }
                     Teleport(player, location);
@@ -2980,9 +2985,9 @@ namespace Oxide.Plugins
 
         private void CommandListHomes(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !_config.Settings.HomesEnabled) return;
+            if (!player || !config.Settings.HomesEnabled) return;
             if (args.Length != 0)
             {
                 PrintMsgL(player, "SyntaxCommandListHomes");
@@ -2995,7 +3000,7 @@ namespace Oxide.Plugins
                 return;
             }
             PrintMsgL(player, "HomeList");
-            if (_config.Home.CheckValidOnList)
+            if (config.Home.CheckValidOnList)
             {
                 var toRemove = new List<string>();
                 foreach (var location in homeData.Locations)
@@ -3022,7 +3027,7 @@ namespace Oxide.Plugins
 
         private void CommandHomeHomes(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermHomeHomes)) return;
             if (args.Length != 1)
@@ -3060,8 +3065,8 @@ namespace Oxide.Plugins
 
         private void CommandTeleportTeam(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
-            if (!_config.TPT.UseClans && !_config.TPT.UseFriends && !_config.TPT.UseTeams)
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (!config.TPT.UseClans && !config.TPT.UseFriends && !config.TPT.UseTeams)
                 return;
 
             var player = p.Object as BasePlayer;
@@ -3103,9 +3108,9 @@ namespace Oxide.Plugins
                 bool enabledFriends = IsEnabled(target.userID, "friend");
                 bool enabledClanMates = IsEnabled(target.userID, "clan");
                 bool enabledTeamMates = IsEnabled(target.userID, "team");
-                bool isFriends = _config.TPT.UseFriends && enabledFriends && (Friends?.Call<bool>("AreFriends", player.UserIDString, target.UserIDString) ?? False);
-                bool isClanMates = _config.TPT.UseClans && enabledClanMates && !string.IsNullOrEmpty(playerClan) && !string.IsNullOrEmpty(targetClan) && playerClan == targetClan;
-                bool isTeamMates = _config.TPT.UseTeams && enabledTeamMates && player.currentTeam != 0 && target.currentTeam != 0 && player.currentTeam == target.currentTeam;
+                bool isFriends = config.TPT.UseFriends && enabledFriends && (Friends?.Call<bool>("AreFriends", player.UserIDString, target.UserIDString) ?? False);
+                bool isClanMates = config.TPT.UseClans && enabledClanMates && !string.IsNullOrEmpty(playerClan) && !string.IsNullOrEmpty(targetClan) && playerClan == targetClan;
+                bool isTeamMates = config.TPT.UseTeams && enabledTeamMates && player.currentTeam != 0 && target.currentTeam != 0 && player.currentTeam == target.currentTeam;
 
                 if (isClanMates || isTeamMates || isFriends)
                 {
@@ -3115,9 +3120,9 @@ namespace Oxide.Plugins
                 else
                 {
                     string message = _("NotValidTPT", player);
-                    if (_config.TPT.UseFriends && enabledFriends) message += _("NotValidTPTFriend", player);
-                    if (_config.TPT.UseTeams && enabledTeamMates) message += _("NotValidTPTTeam", player);
-                    if (_config.TPT.UseClans && enabledClanMates) message += _("NotValidTPTClan", player);
+                    if (config.TPT.UseFriends && enabledFriends) message += _("NotValidTPTFriend", player);
+                    if (config.TPT.UseTeams && enabledTeamMates) message += _("NotValidTPTTeam", player);
+                    if (config.TPT.UseClans && enabledClanMates) message += _("NotValidTPTClan", player);
                     PrintMsg(player, message);
                 }
             }
@@ -3154,9 +3159,9 @@ namespace Oxide.Plugins
 
         private void CommandTeleportRequest(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermTpR) || !_config.Settings.TPREnabled) return;
+            if (!player || !IsAllowedMsg(player, PermTpR) || !config.Settings.TPREnabled) return;
             if (args.Length == 0)
             {
                 PrintMsgL(player, "SyntaxCommandTPR");
@@ -3187,13 +3192,13 @@ namespace Oxide.Plugins
             Puts("Calling CheckPlayer from cmdChatTeleportRequest");
 #endif
 
-            var err = CheckPlayer(player, _config.TPR.UsableOutOfBuildingBlocked, CanCraftTPR(player), True, "tpr");
+            var err = CheckPlayer(player, config.TPR.UsableOutOfBuildingBlocked, CanCraftTPR(player), True, "tpr");
             if (err != null)
             {
                 PrintMsgL(player, err);
                 return;
             }
-            err = CheckTargetLocation(target, target.transform.position, _config.TPR.UsableIntoBuildingBlocked, _config.TPR.CupOwnerAllowOnBuildingBlocked);
+            err = CheckTargetLocation(target, target.transform.position, config.TPR.UsableIntoBuildingBlocked, config.TPR.CupOwnerAllowOnBuildingBlocked);
             if (err != null)
             {
                 PrintMsgL(player, err);
@@ -3210,11 +3215,11 @@ namespace Oxide.Plugins
                 tprData.Date = currentDate;
             }
 
-            var cooldown = player.IsAdmin ? 0 : GetLower(player, _config.TPR.VIPCooldowns, _config.TPR.Cooldown);
+            var cooldown = player.IsAdmin ? 0 : GetLower(player, config.TPR.VIPCooldowns, config.TPR.Cooldown);
             if (cooldown > 0 && timestamp - tprData.Timestamp < cooldown)
             {
                 var cmdSent = "";
-                bool foundmoney = CheckEconomy(player, _config.TPR.Bypass);
+                bool foundmoney = CheckEconomy(player, config.TPR.Bypass);
                 try
                 {
                     cmdSent = args[1].ToLower();
@@ -3222,24 +3227,24 @@ namespace Oxide.Plugins
                 catch { }
 
                 bool payalso = False;
-                if (_config.TPR.Pay > 0)
+                if (config.TPR.Pay > 0)
                 {
                     payalso = True;
                 }
-                if ((_config.Settings.BypassCMD != null) && (cmdSent == _config.Settings.BypassCMD.ToLower()))
+                if ((config.Settings.BypassCMD != null) && (cmdSent == config.Settings.BypassCMD.ToLower()))
                 {
                     if (foundmoney)
                     {
-                        CheckEconomy(player, _config.TPR.Bypass, True);
-                        PrintMsgL(player, "TPRCooldownBypass", _config.TPR.Bypass);
+                        CheckEconomy(player, config.TPR.Bypass, True);
+                        PrintMsgL(player, "TPRCooldownBypass", config.TPR.Bypass);
                         if (payalso)
                         {
-                            PrintMsgL(player, "PayToTPR", _config.TPR.Pay);
+                            PrintMsgL(player, "PayToTPR", config.TPR.Pay);
                         }
                     }
                     else
                     {
-                        PrintMsgL(player, "TPRCooldownBypassF", _config.TPR.Bypass);
+                        PrintMsgL(player, "TPRCooldownBypassF", config.TPR.Bypass);
                         return;
                     }
                 }
@@ -3247,14 +3252,14 @@ namespace Oxide.Plugins
                 {
                     var remain = cooldown - (timestamp - tprData.Timestamp);
                     PrintMsgL(player, "TPRCooldown", FormatTime(remain));
-                    if (_config.TPR.Bypass > 0 && _config.Settings.BypassCMD != null)
+                    if (config.TPR.Bypass > 0 && config.Settings.BypassCMD != null)
                     {
-                        PrintMsgL(player, "TPRCooldownBypassP", _config.TPR.Bypass);
+                        PrintMsgL(player, "TPRCooldownBypassP", config.TPR.Bypass);
                         if (payalso)
                         {
-                            PrintMsgL(player, "PayToTPR", _config.TPR.Pay);
+                            PrintMsgL(player, "PayToTPR", config.TPR.Pay);
                         }
-                        PrintMsgL(player, "TPRCooldownBypassP2a", _config.Settings.BypassCMD);
+                        PrintMsgL(player, "TPRCooldownBypassP2a", config.Settings.BypassCMD);
                     }
                     return;
                 }
@@ -3265,7 +3270,7 @@ namespace Oxide.Plugins
                     return;
                 }
             }
-            var limit = GetHigher(player, _config.TPR.VIPDailyLimits, _config.TPR.DailyLimit);
+            var limit = GetHigher(player, config.TPR.VIPDailyLimits, config.TPR.DailyLimit, true);
             if (limit > 0 && tprData.Amount >= limit)
             {
                 PrintMsgL(player, "TPRLimitReached", limit);
@@ -3312,7 +3317,7 @@ namespace Oxide.Plugins
 
             PlayersRequests[player.userID] = target;
             PlayersRequests[target.userID] = player;
-            PendingRequests[target.userID] = timer.Once(_config.TPR.RequestDuration, () => { RequestTimedOut(player, target); });
+            PendingRequests[target.userID] = timer.Once(config.TPR.RequestDuration, () => { RequestTimedOut(player, target); });
             PrintMsgL(player, "Request", target.displayName);
             PrintMsgL(target, "RequestTarget", player.displayName);
             Interface.CallHook("OnTeleportRequested", target, player);
@@ -3320,9 +3325,9 @@ namespace Oxide.Plugins
 
         private void CommandTeleportAccept(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !_config.Settings.TPREnabled) return;
+            if (!player || !config.Settings.TPREnabled) return;
             if (args.Length != 0)
             {
                 PrintMsgL(player, "SyntaxCommandTPA");
@@ -3350,13 +3355,13 @@ namespace Oxide.Plugins
                 return;
             }
             var originPlayer = PlayersRequests[player.userID];
-            err = CheckTargetLocation(originPlayer, player.transform.position, _config.TPR.UsableIntoBuildingBlocked, _config.TPR.CupOwnerAllowOnBuildingBlocked);
+            err = CheckTargetLocation(originPlayer, player.transform.position, config.TPR.UsableIntoBuildingBlocked, config.TPR.CupOwnerAllowOnBuildingBlocked);
             if (err != null)
             {
                 SendReply(player, err);
                 return;
             }
-            if (_config.TPR.BlockTPAOnCeiling)
+            if (config.TPR.BlockTPAOnCeiling)
             {
                 List<BuildingBlock> entities = GetFloor(player.transform.position);
                 if (entities.Count > 0)
@@ -3365,7 +3370,7 @@ namespace Oxide.Plugins
                     return;
                 }
             }
-            var countdown = GetLower(originPlayer, _config.TPR.VIPCountdowns, _config.TPR.Countdown);
+            var countdown = GetLower(originPlayer, config.TPR.VIPCountdowns, config.TPR.Countdown);
             PrintMsgL(originPlayer, "Accept", player.displayName, countdown);
             PrintMsgL(player, "AcceptTarget", originPlayer.displayName);
             var timestamp = Facepunch.Math.Epoch.Current;
@@ -3378,7 +3383,7 @@ namespace Oxide.Plugins
 #if DEBUG
                     Puts("Calling CheckPlayer from cmdChatTeleportAccept timer loop");
 #endif
-                    err = CheckPlayer(originPlayer, _config.TPR.UsableOutOfBuildingBlocked, CanCraftTPR(originPlayer), True, "tpa") ?? CheckPlayer(player, False, CanCraftTPR(player), True, "tpa");
+                    err = CheckPlayer(originPlayer, config.TPR.UsableOutOfBuildingBlocked, CanCraftTPR(originPlayer), True, "tpa") ?? CheckPlayer(player, False, CanCraftTPR(player), True, "tpa");
                     if (err != null)
                     {
                         PrintMsgL(player, "InterruptedTarget", originPlayer.displayName);
@@ -3387,7 +3392,7 @@ namespace Oxide.Plugins
                         TeleportTimers.Remove(originPlayer.userID);
                         return;
                     }
-                    err = CheckTargetLocation(originPlayer, player.transform.position, _config.TPR.UsableIntoBuildingBlocked, _config.TPR.CupOwnerAllowOnBuildingBlocked);
+                    err = CheckTargetLocation(originPlayer, player.transform.position, config.TPR.UsableIntoBuildingBlocked, config.TPR.CupOwnerAllowOnBuildingBlocked);
                     if (err != null)
                     {
                         SendReply(player, err);
@@ -3416,30 +3421,30 @@ namespace Oxide.Plugins
                     }
                     if (UseEconomy())
                     {
-                        if (_config.TPR.Pay > 0)
+                        if (config.TPR.Pay > 0)
                         {
-                            if (!CheckEconomy(originPlayer, _config.TPR.Pay))
+                            if (!CheckEconomy(originPlayer, config.TPR.Pay))
                             {
                                 PrintMsgL(player, "InterruptedTarget", originPlayer.displayName);
-                                PrintMsgL(originPlayer, "TPNoMoney", _config.TPR.Pay);
+                                PrintMsgL(originPlayer, "TPNoMoney", config.TPR.Pay);
                                 TeleportTimers.Remove(originPlayer.userID);
                                 return;
                             }
                             else
                             {
-                                CheckEconomy(originPlayer, _config.TPR.Pay, True);
-                                PrintMsgL(originPlayer, "TPMoney", (double)_config.TPR.Pay);
+                                CheckEconomy(originPlayer, config.TPR.Pay, True);
+                                PrintMsgL(originPlayer, "TPMoney", (double)config.TPR.Pay);
                             }
                         }
                     }
-                    Teleport(originPlayer, CheckPosition(player.transform.position), _config.TPR.AllowTPB);
+                    Teleport(originPlayer, CheckPosition(player.transform.position), config.TPR.AllowTPB);
                     var tprData = TPR[originPlayer.userID];
                     tprData.Amount++;
                     tprData.Timestamp = timestamp;
                     changedTPR = True;
                     PrintMsgL(player, "SuccessTarget", originPlayer.displayName);
                     PrintMsgL(originPlayer, "Success", player.displayName);
-                    var limit = GetHigher(player, _config.TPR.VIPDailyLimits, _config.TPR.DailyLimit);
+                    var limit = GetHigher(player, config.TPR.VIPDailyLimits, config.TPR.DailyLimit, true);
                     if (limit > 0) PrintMsgL(originPlayer, "TPRAmount", limit - tprData.Amount);
                     TeleportTimers.Remove(originPlayer.userID);
                 })
@@ -3452,7 +3457,7 @@ namespace Oxide.Plugins
 
         private void CommandWipeHomes(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermWipeHomes)) return;
             Home.Clear();
@@ -3462,10 +3467,10 @@ namespace Oxide.Plugins
 
         private void CommandTeleportHelp(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player) return;
-            if (!_config.Settings.HomesEnabled && !_config.Settings.TPREnabled && !IsAllowedMsg(player)) return;
+            if (!config.Settings.HomesEnabled && !config.Settings.TPREnabled && !IsAllowedMsg(player)) return;
             if (args.Length == 1)
             {
                 var key = $"TPHelp{args[0].ToLower()}";
@@ -3480,9 +3485,9 @@ namespace Oxide.Plugins
                 var msg = _("TPHelpGeneral", player);
                 if (IsAllowed(player))
                     msg += NewLine + "/tphelp AdminTP";
-                if (_config.Settings.HomesEnabled)
+                if (config.Settings.HomesEnabled)
                     msg += NewLine + "/tphelp Home";
-                if (_config.Settings.TPREnabled)
+                if (config.Settings.TPREnabled)
                     msg += NewLine + "/tphelp TPR";
                 PrintMsg(player, msg);
             }
@@ -3490,8 +3495,8 @@ namespace Oxide.Plugins
 
         private void CommandTeleportInfo(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
-            if (!_config.Settings.HomesEnabled && !_config.Settings.TPREnabled && !_config.Settings.TownEnabled) return;
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (!config.Settings.HomesEnabled && !config.Settings.TPREnabled && !config.Settings.TownEnabled) return;
             var player = p.Object as BasePlayer;
             if (!player) return;
             if (args.Length == 1)
@@ -3506,9 +3511,9 @@ namespace Oxide.Plugins
                 switch (module)
                 {
                     case "home":
-                        limit = GetLower(player, _config.Home.VIPDailyLimits, _config.Home.DailyLimit);
-                        cooldown = GetLower(player, _config.Home.VIPCooldowns, _config.Home.Cooldown);
-                        PrintMsg(player, string.Format(msg, FormatTime(cooldown), limit > 0 ? limit.ToString() : _("Unlimited", player), GetLower(player, _config.Home.VIPHomesLimits, _config.Home.HomesLimit)));
+                        limit = GetHigher(player, config.Home.VIPDailyLimits, config.Home.DailyLimit, true);
+                        cooldown = GetLower(player, config.Home.VIPCooldowns, config.Home.Cooldown);
+                        PrintMsg(player, string.Format(msg, FormatTime(cooldown), limit > 0 ? limit.ToString() : _("Unlimited", player), GetLower(player, config.Home.VIPHomesLimits, config.Home.HomesLimit)));
                         HomeData homeData;
                         if (!Home.TryGetValue(player.userID, out homeData))
                             Home[player.userID] = homeData = new HomeData();
@@ -3525,8 +3530,8 @@ namespace Oxide.Plugins
                         }
                         break;
                     case "tpr":
-                        limit = GetLower(player, _config.TPR.VIPDailyLimits, _config.TPR.DailyLimit);
-                        cooldown = GetLower(player, _config.TPR.VIPCooldowns, _config.TPR.Cooldown);
+                        limit = GetHigher(player, config.TPR.VIPDailyLimits, config.TPR.DailyLimit, true);
+                        cooldown = GetLower(player, config.TPR.VIPCooldowns, config.TPR.Cooldown);
                         PrintMsg(player, string.Format(msg, FormatTime(cooldown), limit > 0 ? limit.ToString() : _("Unlimited", player)));
                         if (!TPR.TryGetValue(player.userID, out teleportData))
                             TPR[player.userID] = teleportData = new TeleportData();
@@ -3543,8 +3548,8 @@ namespace Oxide.Plugins
                         }
                         break;
                     case "town":
-                        limit = GetLower(player, _config.Town.VIPDailyLimits, _config.Town.DailyLimit);
-                        cooldown = GetLower(player, _config.Town.VIPCooldowns, _config.Town.Cooldown);
+                        limit = GetHigher(player, config.Town.VIPDailyLimits, config.Town.DailyLimit, true);
+                        cooldown = GetLower(player, config.Town.VIPCooldowns, config.Town.Cooldown);
                         PrintMsg(player, string.Format(msg, FormatTime(cooldown), limit > 0 ? limit.ToString() : _("Unlimited", player)));
                         if (!Town.TryGetValue(player.userID, out teleportData))
                             Town[player.userID] = teleportData = new TeleportData();
@@ -3558,13 +3563,13 @@ namespace Oxide.Plugins
                         {
                             var remain = cooldown - (timestamp - teleportData.Timestamp);
                             PrintMsgL(player, "TownTPCooldown", FormatTime(remain));
-                            PrintMsgL(player, "TownTPCooldownBypassP", _config.Town.Bypass);
-                            PrintMsgL(player, "TownTPCooldownBypassP2", _config.Settings.BypassCMD);
+                            PrintMsgL(player, "TownTPCooldownBypassP", config.Town.Bypass);
+                            PrintMsgL(player, "TownTPCooldownBypassP2", config.Settings.BypassCMD);
                         }
                         break;
                     case "outpost":
-                        limit = GetLower(player, _config.Outpost.VIPDailyLimits, _config.Outpost.DailyLimit);
-                        cooldown = GetLower(player, _config.Outpost.VIPCooldowns, _config.Outpost.Cooldown);
+                        limit = GetHigher(player, config.Outpost.VIPDailyLimits, config.Outpost.DailyLimit, true);
+                        cooldown = GetLower(player, config.Outpost.VIPCooldowns, config.Outpost.Cooldown);
                         PrintMsg(player, string.Format(msg, FormatTime(cooldown), limit > 0 ? limit.ToString() : _("Unlimited", player)));
                         if (!Outpost.TryGetValue(player.userID, out teleportData))
                             Outpost[player.userID] = teleportData = new TeleportData();
@@ -3578,13 +3583,13 @@ namespace Oxide.Plugins
                         {
                             var remain = cooldown - (timestamp - teleportData.Timestamp);
                             PrintMsgL(player, "OutpostTPCooldown", FormatTime(remain));
-                            PrintMsgL(player, "OutpostTPCooldownBypassP", _config.Outpost.Bypass);
-                            PrintMsgL(player, "OutpostTPCooldownBypassP2", _config.Settings.BypassCMD);
+                            PrintMsgL(player, "OutpostTPCooldownBypassP", config.Outpost.Bypass);
+                            PrintMsgL(player, "OutpostTPCooldownBypassP2", config.Settings.BypassCMD);
                         }
                         break;
                     case "bandit":
-                        limit = GetLower(player, _config.Bandit.VIPDailyLimits, _config.Bandit.DailyLimit);
-                        cooldown = GetLower(player, _config.Bandit.VIPCooldowns, _config.Bandit.Cooldown);
+                        limit = GetHigher(player, config.Bandit.VIPDailyLimits, config.Bandit.DailyLimit, true);
+                        cooldown = GetLower(player, config.Bandit.VIPCooldowns, config.Bandit.Cooldown);
                         PrintMsg(player, string.Format(msg, FormatTime(cooldown), limit > 0 ? limit.ToString() : _("Unlimited", player)));
                         if (!Bandit.TryGetValue(player.userID, out teleportData))
                             Bandit[player.userID] = teleportData = new TeleportData();
@@ -3598,8 +3603,8 @@ namespace Oxide.Plugins
                         {
                             var remain = cooldown - (timestamp - teleportData.Timestamp);
                             PrintMsgL(player, "BanditTPCooldown", FormatTime(remain));
-                            PrintMsgL(player, "BanditTPCooldownBypassP", _config.Bandit.Bypass);
-                            PrintMsgL(player, "BanditTPCooldownBypassP2", _config.Settings.BypassCMD);
+                            PrintMsgL(player, "BanditTPCooldownBypassP", config.Bandit.Bypass);
+                            PrintMsgL(player, "BanditTPCooldownBypassP2", config.Settings.BypassCMD);
                         }
                         break;
                     default:
@@ -3610,15 +3615,15 @@ namespace Oxide.Plugins
             else
             {
                 var msg = _("TPInfoGeneral", player);
-                if (_config.Settings.HomesEnabled)
+                if (config.Settings.HomesEnabled)
                     msg += NewLine + "/tpinfo Home";
-                if (_config.Settings.TPREnabled)
+                if (config.Settings.TPREnabled)
                     msg += NewLine + "/tpinfo TPR";
-                if (_config.Settings.TownEnabled)
+                if (config.Settings.TownEnabled)
                     msg += NewLine + "/tpinfo Town";
-                if (_config.Settings.OutpostEnabled)
+                if (config.Settings.OutpostEnabled)
                     msg += NewLine + "/tpinfo Outpost";
-                if (_config.Settings.BanditEnabled)
+                if (config.Settings.BanditEnabled)
                     msg += NewLine + "/tpinfo Bandit";
                 PrintMsgL(player, msg);
             }
@@ -3626,8 +3631,8 @@ namespace Oxide.Plugins
 
         private void CommandTeleportCancel(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
-            if (!_config.Settings.TPREnabled) return;
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
+            if (!config.Settings.TPREnabled) return;
             var player = p.Object as BasePlayer;
             if (!player) return;
             if (args.Length != 0)
@@ -3681,25 +3686,17 @@ namespace Oxide.Plugins
 
         private void CommandOutpost(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
-            if (_config.Settings.OutpostEnabled)
-            {
-                CommandTown(p, "outpost", args);
-            }
+            CommandTown(p, "outpost", args);
         }
 
         private void CommandBandit(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
-            if (_config.Settings.BanditEnabled)
-            {
-                CommandTown(p, "bandit", args);
-            }
+            CommandTown(p, "bandit", args);
         }
 
         private void CommandTown(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (!player) return;
 #if DEBUG
@@ -3725,20 +3722,20 @@ namespace Oxide.Plugins
                 switch (command)
                 {
                     case "outpost":
-                        _config.Outpost.Location = player.transform.position;
+                        config.Outpost.Location = player.transform.position;
                         SaveConfig();
-                        PrintMsgL(player, "OutpostTPLocation", _config.Outpost.Location);
+                        PrintMsgL(player, "OutpostTPLocation", config.Outpost.Location);
                         break;
                     case "bandit":
-                        _config.Bandit.Location = player.transform.position;
+                        config.Bandit.Location = player.transform.position;
                         SaveConfig();
-                        PrintMsgL(player, "BanditTPLocation", _config.Bandit.Location);
+                        PrintMsgL(player, "BanditTPLocation", config.Bandit.Location);
                         break;
                     case "town":
                     default:
-                        _config.Town.Location = player.transform.position;
+                        config.Town.Location = player.transform.position;
                         SaveConfig();
-                        PrintMsgL(player, "TownTPLocation", _config.Town.Location);
+                        PrintMsgL(player, "TownTPLocation", config.Town.Location);
                         break;
                 }
                 return;
@@ -3747,24 +3744,24 @@ namespace Oxide.Plugins
             bool paidmoney = False;
 
             // Is outpost/bandit/town usage enabled?
-            if (!_config.Settings.OutpostEnabled && command == "outpost")
+            if (!config.Settings.OutpostEnabled && command == "outpost")
             {
                 PrintMsgL(player, "OutpostTPDisabled");
                 return;
             }
-            else if (!_config.Settings.BanditEnabled && command == "bandit")
+            else if (!config.Settings.BanditEnabled && command == "bandit")
             {
                 PrintMsgL(player, "BanditTPDisabled");
                 return;
             }
-            else if (!_config.Settings.TownEnabled && command == "town")
+            else if (!config.Settings.TownEnabled && command == "town")
             {
                 PrintMsgL(player, "TownTPDisabled");
                 return;
             }
 
             // Are they trying to bypass cooldown or did they just type something else?
-            if (args.Length == 1 && (args[0].ToLower() != _config.Settings.BypassCMD.ToLower()))
+            if (args.Length == 1 && (args[0].ToLower() != config.Settings.BypassCMD.ToLower()))
             {
                 string com = command == null ? "town" : command;
                 string msg = "SyntaxCommand" + char.ToUpper(com[0]) + com.Substring(1);
@@ -3774,17 +3771,17 @@ namespace Oxide.Plugins
             }
 
             // Is outpost/bandit/town location set?
-            if (_config.Outpost.Location == Zero && command == "outpost")
+            if (config.Outpost.Location == Zero && command == "outpost")
             {
                 PrintMsgL(player, "OutpostTPNotSet");
                 return;
             }
-            else if (_config.Bandit.Location == Zero && command == "bandit")
+            else if (config.Bandit.Location == Zero && command == "bandit")
             {
                 PrintMsgL(player, "BanditTPNotSet");
                 return;
             }
-            else if (_config.Town.Location == Zero && command == "town")
+            else if (config.Town.Location == Zero && command == "town")
             {
                 PrintMsgL(player, "TownTPNotSet");
                 return;
@@ -3813,7 +3810,7 @@ namespace Oxide.Plugins
             switch (command)
             {
                 case "outpost":
-                    err = CheckPlayer(player, _config.Outpost.UsableOutOfBuildingBlocked, CanCraftOutpost(player), True, "outpost");
+                    err = CheckPlayer(player, config.Outpost.UsableOutOfBuildingBlocked, CanCraftOutpost(player), True, "outpost");
                     if (err != null)
                     {
                         PrintMsgL(player, err);
@@ -3824,7 +3821,7 @@ namespace Oxide.Plugins
                         }
                         return;
                     }
-                    cooldown = GetLower(player, _config.Outpost.VIPCooldowns, _config.Outpost.Cooldown);
+                    cooldown = GetLower(player, config.Outpost.VIPCooldowns, config.Outpost.Cooldown);
                     if (!Outpost.TryGetValue(player.userID, out teleportData))
                     {
                         Outpost[player.userID] = teleportData = new TeleportData();
@@ -3835,8 +3832,8 @@ namespace Oxide.Plugins
                         teleportData.Date = currentDate;
                     }
 
-                    targetPay = _config.Outpost.Pay;
-                    targetBypass = _config.Outpost.Bypass;
+                    targetPay = config.Outpost.Pay;
+                    targetBypass = config.Outpost.Bypass;
 
                     msgPay = "PayToOutpost";
                     msgCooldown = "OutpostTPCooldown";
@@ -3845,10 +3842,10 @@ namespace Oxide.Plugins
                     msgCooldownBypassP = "OutpostTPCooldownBypassP";
                     msgCooldownBypassP2 = "OutpostTPCooldownBypassP2";
                     msgLimitReached = "OutpostTPLimitReached";
-                    limit = GetLower(player, _config.Outpost.VIPDailyLimits, _config.Outpost.DailyLimit);
+                    limit = GetHigher(player, config.Outpost.VIPDailyLimits, config.Outpost.DailyLimit, true);
                     break;
                 case "bandit":
-                    err = CheckPlayer(player, _config.Bandit.UsableOutOfBuildingBlocked, CanCraftBandit(player), True, "bandit");
+                    err = CheckPlayer(player, config.Bandit.UsableOutOfBuildingBlocked, CanCraftBandit(player), True, "bandit");
                     if (err != null)
                     {
                         PrintMsgL(player, err);
@@ -3860,7 +3857,7 @@ namespace Oxide.Plugins
                         }
                         return;
                     }
-                    cooldown = GetLower(player, _config.Bandit.VIPCooldowns, _config.Bandit.Cooldown);
+                    cooldown = GetLower(player, config.Bandit.VIPCooldowns, config.Bandit.Cooldown);
                     if (!Bandit.TryGetValue(player.userID, out teleportData))
                     {
                         Bandit[player.userID] = teleportData = new TeleportData();
@@ -3870,8 +3867,8 @@ namespace Oxide.Plugins
                         teleportData.Amount = 0;
                         teleportData.Date = currentDate;
                     }
-                    targetPay = _config.Bandit.Pay;
-                    targetBypass = _config.Bandit.Bypass;
+                    targetPay = config.Bandit.Pay;
+                    targetBypass = config.Bandit.Bypass;
 
                     msgPay = "PayToBandit";
                     msgCooldown = "BanditTPCooldown";
@@ -3880,17 +3877,17 @@ namespace Oxide.Plugins
                     msgCooldownBypassP = "BanditTPCooldownBypassP";
                     msgCooldownBypassP2 = "BanditTPCooldownBypassP2";
                     msgLimitReached = "BanditTPLimitReached";
-                    limit = GetLower(player, _config.Bandit.VIPDailyLimits, _config.Bandit.DailyLimit);
+                    limit = GetHigher(player, config.Bandit.VIPDailyLimits, config.Bandit.DailyLimit, true);
                     break;
                 case "town":
                 default:
-                    err = CheckPlayer(player, _config.Town.UsableOutOfBuildingBlocked, CanCraftTown(player), True, "town");
+                    err = CheckPlayer(player, config.Town.UsableOutOfBuildingBlocked, CanCraftTown(player), True, "town");
                     if (err != null)
                     {
                         PrintMsgL(player, err);
                         return;
                     }
-                    cooldown = GetLower(player, _config.Town.VIPCooldowns, _config.Town.Cooldown);
+                    cooldown = GetLower(player, config.Town.VIPCooldowns, config.Town.Cooldown);
                     if (!Town.TryGetValue(player.userID, out teleportData))
                     {
                         Town[player.userID] = teleportData = new TeleportData();
@@ -3900,8 +3897,8 @@ namespace Oxide.Plugins
                         teleportData.Amount = 0;
                         teleportData.Date = currentDate;
                     }
-                    targetPay = _config.Town.Pay;
-                    targetBypass = _config.Town.Bypass;
+                    targetPay = config.Town.Pay;
+                    targetBypass = config.Town.Bypass;
 
                     msgPay = "PayToTown";
                     msgCooldown = "TownTPCooldown";
@@ -3910,7 +3907,7 @@ namespace Oxide.Plugins
                     msgCooldownBypassP = "TownTPCooldownBypassP";
                     msgCooldownBypassP2 = "TownTPCooldownBypassP2";
                     msgLimitReached = "TownTPLimitReached";
-                    limit = GetLower(player, _config.Town.VIPDailyLimits, _config.Town.DailyLimit);
+                    limit = GetHigher(player, config.Town.VIPDailyLimits, config.Town.DailyLimit, true);
                     break;
             }
 
@@ -3930,7 +3927,7 @@ namespace Oxide.Plugins
                 {
                     payalso = True;
                 }
-                if ((_config.Settings.BypassCMD != null) && (cmdSent == _config.Settings.BypassCMD.ToLower()))
+                if ((config.Settings.BypassCMD != null) && (cmdSent == config.Settings.BypassCMD.ToLower()))
                 {
                     if (foundmoney)
                     {
@@ -3952,10 +3949,10 @@ namespace Oxide.Plugins
                 {
                     var remain = cooldown - (timestamp - teleportData.Timestamp);
                     PrintMsgL(player, msgCooldown, FormatTime(remain));
-                    if (targetBypass > 0 && _config.Settings.BypassCMD != null)
+                    if (targetBypass > 0 && config.Settings.BypassCMD != null)
                     {
                         PrintMsgL(player, msgCooldownBypassP, targetBypass);
-                        PrintMsgL(player, msgCooldownBypassP2, _config.Settings.BypassCMD);
+                        PrintMsgL(player, msgCooldownBypassP2, config.Settings.BypassCMD);
                     }
                     return;
                 }
@@ -3994,7 +3991,7 @@ namespace Oxide.Plugins
             switch (command)
             {
                 case "outpost":
-                    countdown = GetLower(player, _config.Outpost.VIPCountdowns, _config.Outpost.Countdown);
+                    countdown = GetLower(player, config.Outpost.VIPCountdowns, config.Outpost.Countdown);
                     TeleportTimers[player.userID] = new TeleportTimer
                     {
                         OriginPlayer = player,
@@ -4003,7 +4000,7 @@ namespace Oxide.Plugins
 #if DEBUG
                             Puts("Calling CheckPlayer from cmdChatTown outpost timer loop");
 #endif
-                            err = CheckPlayer(player, _config.Outpost.UsableOutOfBuildingBlocked, CanCraftOutpost(player), True, "outpost");
+                            err = CheckPlayer(player, config.Outpost.UsableOutOfBuildingBlocked, CanCraftOutpost(player), True, "outpost");
                             if (err != null)
                             {
                                 PrintMsgL(player, "Interrupted");
@@ -4011,7 +4008,7 @@ namespace Oxide.Plugins
                                 if (paidmoney)
                                 {
                                     paidmoney = False;
-                                    CheckEconomy(player, _config.Outpost.Bypass, False, True);
+                                    CheckEconomy(player, config.Outpost.Bypass, False, True);
                                 }
                                 TeleportTimers.Remove(player.userID);
                                 return;
@@ -4024,7 +4021,7 @@ namespace Oxide.Plugins
                                 if (paidmoney)
                                 {
                                     paidmoney = False;
-                                    CheckEconomy(player, _config.Outpost.Bypass, False, True);
+                                    CheckEconomy(player, config.Outpost.Bypass, False, True);
                                 }
                                 TeleportTimers.Remove(player.userID);
                                 return;
@@ -4037,27 +4034,27 @@ namespace Oxide.Plugins
                                 if (paidmoney)
                                 {
                                     paidmoney = False;
-                                    CheckEconomy(player, _config.Outpost.Bypass, False, True);
+                                    CheckEconomy(player, config.Outpost.Bypass, False, True);
                                 }
                                 TeleportTimers.Remove(player.userID);
                                 return;
                             }
                             if (UseEconomy())
                             {
-                                if (_config.Outpost.Pay > 0 && !CheckEconomy(player, _config.Outpost.Pay))
+                                if (config.Outpost.Pay > 0 && !CheckEconomy(player, config.Outpost.Pay))
                                 {
                                     PrintMsgL(player, "Interrupted");
-                                    PrintMsgL(player, "TPNoMoney", _config.Outpost.Pay);
+                                    PrintMsgL(player, "TPNoMoney", config.Outpost.Pay);
                                     TeleportTimers.Remove(player.userID);
                                     return;
                                 }
-                                else if (_config.Outpost.Pay > 0)
+                                else if (config.Outpost.Pay > 0)
                                 {
-                                    CheckEconomy(player, _config.Outpost.Pay, True);
-                                    PrintMsgL(player, "TPMoney", (double)_config.Outpost.Pay);
+                                    CheckEconomy(player, config.Outpost.Pay, True);
+                                    PrintMsgL(player, "TPMoney", (double)config.Outpost.Pay);
                                 }
                             }
-                            Teleport(player, _config.Outpost.Location);
+                            Teleport(player, config.Outpost.Location);
                             teleportData.Amount++;
                             teleportData.Timestamp = timestamp;
 
@@ -4070,7 +4067,7 @@ namespace Oxide.Plugins
                     PrintMsgL(player, "OutpostTPStarted", countdown);
                     break;
                 case "bandit":
-                    countdown = GetLower(player, _config.Bandit.VIPCountdowns, _config.Bandit.Countdown);
+                    countdown = GetLower(player, config.Bandit.VIPCountdowns, config.Bandit.Countdown);
                     TeleportTimers[player.userID] = new TeleportTimer
                     {
                         OriginPlayer = player,
@@ -4079,7 +4076,7 @@ namespace Oxide.Plugins
 #if DEBUG
                             Puts("Calling CheckPlayer from cmdChatTown bandit timer loop");
 #endif
-                            err = CheckPlayer(player, _config.Bandit.UsableOutOfBuildingBlocked, CanCraftBandit(player), True, "bandit");
+                            err = CheckPlayer(player, config.Bandit.UsableOutOfBuildingBlocked, CanCraftBandit(player), True, "bandit");
                             if (err != null)
                             {
                                 PrintMsgL(player, "Interrupted");
@@ -4087,7 +4084,7 @@ namespace Oxide.Plugins
                                 if (paidmoney)
                                 {
                                     paidmoney = False;
-                                    CheckEconomy(player, _config.Bandit.Bypass, False, True);
+                                    CheckEconomy(player, config.Bandit.Bypass, False, True);
                                 }
                                 TeleportTimers.Remove(player.userID);
                                 return;
@@ -4100,7 +4097,7 @@ namespace Oxide.Plugins
                                 if (paidmoney)
                                 {
                                     paidmoney = False;
-                                    CheckEconomy(player, _config.Bandit.Bypass, False, True);
+                                    CheckEconomy(player, config.Bandit.Bypass, False, True);
                                 }
                                 TeleportTimers.Remove(player.userID);
                                 return;
@@ -4113,27 +4110,27 @@ namespace Oxide.Plugins
                                 if (paidmoney)
                                 {
                                     paidmoney = False;
-                                    CheckEconomy(player, _config.Bandit.Bypass, False, True);
+                                    CheckEconomy(player, config.Bandit.Bypass, False, True);
                                 }
                                 TeleportTimers.Remove(player.userID);
                                 return;
                             }
                             if (UseEconomy())
                             {
-                                if (_config.Bandit.Pay > 0 && !CheckEconomy(player, _config.Bandit.Pay))
+                                if (config.Bandit.Pay > 0 && !CheckEconomy(player, config.Bandit.Pay))
                                 {
                                     PrintMsgL(player, "Interrupted");
-                                    PrintMsgL(player, "TPNoMoney", _config.Bandit.Pay);
+                                    PrintMsgL(player, "TPNoMoney", config.Bandit.Pay);
                                     TeleportTimers.Remove(player.userID);
                                     return;
                                 }
-                                else if (_config.Bandit.Pay > 0)
+                                else if (config.Bandit.Pay > 0)
                                 {
-                                    CheckEconomy(player, _config.Bandit.Pay, True);
-                                    PrintMsgL(player, "TPMoney", (double)_config.Bandit.Pay);
+                                    CheckEconomy(player, config.Bandit.Pay, True);
+                                    PrintMsgL(player, "TPMoney", (double)config.Bandit.Pay);
                                 }
                             }
-                            Teleport(player, _config.Bandit.Location);
+                            Teleport(player, config.Bandit.Location);
                             teleportData.Amount++;
                             teleportData.Timestamp = timestamp;
 
@@ -4147,7 +4144,7 @@ namespace Oxide.Plugins
                     break;
                 case "town":
                 default:
-                    countdown = GetLower(player, _config.Town.VIPCountdowns, _config.Town.Countdown);
+                    countdown = GetLower(player, config.Town.VIPCountdowns, config.Town.Countdown);
                     TeleportTimers[player.userID] = new TeleportTimer
                     {
                         OriginPlayer = player,
@@ -4156,7 +4153,7 @@ namespace Oxide.Plugins
 #if DEBUG
                             Puts("Calling CheckPlayer from cmdChatTown town timer loop");
 #endif
-                            err = CheckPlayer(player, _config.Town.UsableOutOfBuildingBlocked, CanCraftTown(player), True, "town");
+                            err = CheckPlayer(player, config.Town.UsableOutOfBuildingBlocked, CanCraftTown(player), True, "town");
                             if (err != null)
                             {
                                 PrintMsgL(player, "Interrupted");
@@ -4164,7 +4161,7 @@ namespace Oxide.Plugins
                                 if (paidmoney)
                                 {
                                     paidmoney = False;
-                                    CheckEconomy(player, _config.Town.Bypass, False, True);
+                                    CheckEconomy(player, config.Town.Bypass, False, True);
                                 }
                                 TeleportTimers.Remove(player.userID);
                                 return;
@@ -4177,7 +4174,7 @@ namespace Oxide.Plugins
                                 if (paidmoney)
                                 {
                                     paidmoney = False;
-                                    CheckEconomy(player, _config.Town.Bypass, False, True);
+                                    CheckEconomy(player, config.Town.Bypass, False, True);
                                 }
                                 TeleportTimers.Remove(player.userID);
                                 return;
@@ -4190,27 +4187,27 @@ namespace Oxide.Plugins
                                 if (paidmoney)
                                 {
                                     paidmoney = False;
-                                    CheckEconomy(player, _config.Town.Bypass, False, True);
+                                    CheckEconomy(player, config.Town.Bypass, False, True);
                                 }
                                 TeleportTimers.Remove(player.userID);
                                 return;
                             }
                             if (UseEconomy())
                             {
-                                if (_config.Town.Pay > 0 && !CheckEconomy(player, _config.Town.Pay))
+                                if (config.Town.Pay > 0 && !CheckEconomy(player, config.Town.Pay))
                                 {
                                     PrintMsgL(player, "Interrupted");
-                                    PrintMsgL(player, "TPNoMoney", _config.Town.Pay);
+                                    PrintMsgL(player, "TPNoMoney", config.Town.Pay);
                                     TeleportTimers.Remove(player.userID);
                                     return;
                                 }
-                                else if (_config.Town.Pay > 0)
+                                else if (config.Town.Pay > 0)
                                 {
-                                    CheckEconomy(player, _config.Town.Pay, True);
-                                    PrintMsgL(player, "TPMoney", (double)_config.Town.Pay);
+                                    CheckEconomy(player, config.Town.Pay, True);
+                                    PrintMsgL(player, "TPMoney", (double)config.Town.Pay);
                                 }
                             }
-                            Teleport(player, _config.Town.Location);
+                            Teleport(player, config.Town.Location);
                             teleportData.Amount++;
                             teleportData.Timestamp = timestamp;
 
@@ -4227,7 +4224,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportII(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (player != null && !IsAllowedMsg(player, PermTpConsole)) return;
             HashSet<BasePlayer> players;
@@ -4263,7 +4260,7 @@ namespace Oxide.Plugins
                         return;
                     }
                     Teleport(targetPlayer, x, y, z);
-                    if (_config.Admin.AnnounceTeleportToTarget)
+                    if (config.Admin.AnnounceTeleportToTarget)
                         PrintMsgL(targetPlayer, "AdminTPConsoleTP", targetPlayer.transform.position);
                     p.Reply(_("AdminTPTargetCoordinates", player, targetPlayer.displayName, targetPlayer.transform.position));
                     Puts(_("LogTeleportPlayer", null, player?.displayName, targetPlayer.displayName, targetPlayer.transform.position));
@@ -4306,7 +4303,7 @@ namespace Oxide.Plugins
                     Teleport(originPlayer, targetPlayer);
                     p.Reply(_("AdminTPPlayers", player, originPlayer.displayName, targetPlayer.displayName));
                     PrintMsgL(originPlayer, "AdminTPConsoleTPPlayer", targetPlayer.displayName);
-                    if (_config.Admin.AnnounceTeleportToTarget)
+                    if (config.Admin.AnnounceTeleportToTarget)
                         PrintMsgL(targetPlayer, "AdminTPConsoleTPPlayerTarget", originPlayer.displayName);
                     Puts(_("LogTeleportPlayer", null, player?.displayName, originPlayer.displayName, targetPlayer.displayName));
                     break;
@@ -4376,12 +4373,12 @@ namespace Oxide.Plugins
                     return 24f;
             }
 
-            return _config.Settings.DefaultMonumentSize;
+            return config.Settings.DefaultMonumentSize;
         }
 
         private void CommandSphereMonuments(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p?.Object as BasePlayer;
             if (!player || !player.IsAdmin) return;
 
@@ -4411,7 +4408,7 @@ namespace Oxide.Plugins
 
         private void CommandImportHomes(IPlayer p, string command, string[] args)
         {
-            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
 
             if (player != null && !IsAllowedMsg(player, PermImportHomes))
@@ -4467,7 +4464,7 @@ namespace Oxide.Plugins
             PrintMsgL(target, "TimedOutTarget", player.displayName);
         }
 
-#region Util
+        #region Util
         private string FormatTime(long seconds)
         {
             var timespan = TimeSpan.FromSeconds(seconds);
@@ -4478,9 +4475,9 @@ namespace Oxide.Plugins
         {
             return System.Math.PI / 180 * angle;
         }
-#endregion
+        #endregion
 
-#region Teleport
+        #region Teleport
         public void Teleport(BasePlayer player, BasePlayer target) => Teleport(player, target.transform.position);
 
         public void Teleport(BasePlayer player, float x, float y, float z) => Teleport(player, new Vector3(x, y, z));
@@ -4540,9 +4537,9 @@ namespace Oxide.Plugins
                 player.CancelInvoke("TeamUpdate");
             }
         }
-#endregion
+        #endregion
 
-#region Checks
+        #region Checks
         // Used by tpa only to provide for offset from the target to avoid overlap
         private Vector3 CheckPosition(Vector3 position)
         {
@@ -4559,7 +4556,7 @@ namespace Oxide.Plugins
                 buildingBlock = block;
                 distance = (block.transform.position - position).magnitude;
             }
-            if (buildingBlock == null || !_config.TPR.OffsetTPRTarget) return position;
+            if (buildingBlock == null || !config.TPR.OffsetTPRTarget) return position;
             var blockRotation = buildingBlock.transform.rotation.eulerAngles.y;
             var angles = new[] { 360 - blockRotation, 180 - blockRotation };
             var location = Zero;
@@ -4607,27 +4604,27 @@ namespace Oxide.Plugins
 
         private bool CanCraftHome(BasePlayer player)
         {
-            return _config.Home.AllowCraft || permission.UserHasPermission(player.UserIDString, PermCraftHome);
+            return config.Home.AllowCraft || permission.UserHasPermission(player.UserIDString, PermCraftHome);
         }
 
         private bool CanCraftTown(BasePlayer player)
         {
-            return _config.Town.AllowCraft || permission.UserHasPermission(player.UserIDString, PermCraftTown);
+            return config.Town.AllowCraft || permission.UserHasPermission(player.UserIDString, PermCraftTown);
         }
 
         private bool CanCraftOutpost(BasePlayer player)
         {
-            return _config.Outpost.AllowCraft || permission.UserHasPermission(player.UserIDString, PermCraftOutpost);
+            return config.Outpost.AllowCraft || permission.UserHasPermission(player.UserIDString, PermCraftOutpost);
         }
 
         private bool CanCraftBandit(BasePlayer player)
         {
-            return _config.Bandit.AllowCraft || permission.UserHasPermission(player.UserIDString, PermCraftBandit);
+            return config.Bandit.AllowCraft || permission.UserHasPermission(player.UserIDString, PermCraftBandit);
         }
 
         private bool CanCraftTPR(BasePlayer player)
         {
-            return _config.TPR.AllowCraft || permission.UserHasPermission(player.UserIDString, PermCraftTpR);
+            return config.TPR.AllowCraft || permission.UserHasPermission(player.UserIDString, PermCraftTpR);
         }
 
         public bool AboveWater(BasePlayer player)
@@ -4685,15 +4682,15 @@ namespace Oxide.Plugins
 
                 if (cavename.Contains("Small"))
                 {
-                    realdistance = _config.Settings.CaveDistanceSmall;
+                    realdistance = config.Settings.CaveDistanceSmall;
                 }
                 else if (cavename.Contains("Large"))
                 {
-                    realdistance = _config.Settings.CaveDistanceLarge;
+                    realdistance = config.Settings.CaveDistanceLarge;
                 }
                 else if (cavename.Contains("Medium"))
                 {
-                    realdistance = _config.Settings.CaveDistanceMedium;
+                    realdistance = config.Settings.CaveDistanceMedium;
                 }
 
                 var cavevector = entry.Value;
@@ -4726,14 +4723,14 @@ namespace Oxide.Plugins
             var pos = player.transform.position;
 
             string monname = NearMonument(player);
-            if (_config.Settings.Interrupt.Monument)
+            if (config.Settings.Interrupt.Monument)
             {
                 if (monname != null)
                 {
                     return _("TooCloseToMon", player, monname);
                 }
             }
-            if (_config.Settings.Interrupt.Oilrig)
+            if (config.Settings.Interrupt.Oilrig)
             {
                 if (monname != null && monname.Contains("Oilrig"))
                 {
@@ -4748,7 +4745,7 @@ namespace Oxide.Plugins
             switch (mode)
             {
                 case "home":
-                    allowcave = _config.Home.AllowCave;
+                    allowcave = config.Home.AllowCave;
                     break;
                 case "tpa":
                 case "tpr":
@@ -4773,56 +4770,56 @@ namespace Oxide.Plugins
                 }
             }
 
-            if (_config.Settings.Interrupt.Hostile && (mode == "bandit" || mode == "outpost"))
+            if (config.Settings.Interrupt.Hostile && (mode == "bandit" || mode == "outpost"))
             {
                 if (player.IsHostile())
                 {
                     return "TPHostile";
                 }
             }
-            if (player.isMounted && _config.Settings.Interrupt.Mounted)
+            if (player.isMounted && config.Settings.Interrupt.Mounted)
                 return "TPMounted";
             if (!player.IsAlive())
                 return "TPDead";
             // Block if hurt if the config is enabled.  If the player is not the target in a tpa condition, allow.
-            if ((player.IsWounded() && origin) && _config.Settings.Interrupt.Hurt)
+            if ((player.IsWounded() && origin) && config.Settings.Interrupt.Hurt)
                 return "TPWounded";
 
-            if (player.metabolism.temperature.value <= _config.Settings.MinimumTemp && _config.Settings.Interrupt.Cold)
+            if (player.metabolism.temperature.value <= config.Settings.MinimumTemp && config.Settings.Interrupt.Cold)
             {
                 return "TPTooCold";
             }
-            if (player.metabolism.temperature.value >= _config.Settings.MaximumTemp && _config.Settings.Interrupt.Hot)
+            if (player.metabolism.temperature.value >= config.Settings.MaximumTemp && config.Settings.Interrupt.Hot)
             {
                 return "TPTooHot";
             }
 
-            if (_config.Settings.Interrupt.AboveWater)
+            if (config.Settings.Interrupt.AboveWater)
                 if (AboveWater(player))
                     return "TPAboveWater";
             if (!build && !player.CanBuild())
                 return "TPBuildingBlocked";
-            if (player.IsSwimming() && _config.Settings.Interrupt.Swimming)
+            if (player.IsSwimming() && config.Settings.Interrupt.Swimming)
                 return "TPSwimming";
             // This will have to do until we have a proper parent name for this
-            if (monname != null && monname.Contains("Oilrig") && _config.Settings.Interrupt.Oilrig)
+            if (monname != null && monname.Contains("Oilrig") && config.Settings.Interrupt.Oilrig)
                 return "TPOilRig";
-            if (monname != null && monname.Contains("Excavator") && _config.Settings.Interrupt.Excavator)
+            if (monname != null && monname.Contains("Excavator") && config.Settings.Interrupt.Excavator)
                 return "TPExcavator";
-            if (onship && _config.Settings.Interrupt.Cargo)
+            if (onship && config.Settings.Interrupt.Cargo)
                 return "TPCargoShip";
-            if (onballoon && _config.Settings.Interrupt.Balloon)
+            if (onballoon && config.Settings.Interrupt.Balloon)
                 return "TPHotAirBalloon";
-            if (inlift && _config.Settings.Interrupt.Lift)
+            if (inlift && config.Settings.Interrupt.Lift)
                 return "TPBucketLift";
-            if (GetLift(pos) && _config.Settings.Interrupt.Lift)
+            if (GetLift(pos) && config.Settings.Interrupt.Lift)
                 return "TPRegLift";
-            if (player.InSafeZone() && _config.Settings.Interrupt.Safe)
+            if (player.InSafeZone() && config.Settings.Interrupt.Safe)
                 return "TPSafeZone";
             if (!craft && player.inventory.crafting.queue.Count > 0)
                 return "TPCrafting";
 
-            if (_config.Settings.BlockZoneFlag && ZoneManager != null)
+            if (config.Settings.BlockZoneFlag && ZoneManager != null)
             {
                 bool flag = ZoneManager.Call<bool>("PlayerHasFlag", player, "notp");
                 if (flag)
@@ -4831,7 +4828,7 @@ namespace Oxide.Plugins
                 }
             }
 
-            if (_config.Settings.BlockNoEscape && NoEscape != null)
+            if (config.Settings.BlockNoEscape && NoEscape != null)
             {
                 bool flag = NoEscape.Call<bool>("IsBlocked", player);
                 if (flag)
@@ -5030,14 +5027,14 @@ namespace Oxide.Plugins
 
         private string CheckFoundation(ulong userID, Vector3 position)
         {
-            if (!_config.Home.ForceOnTopOfFoundation) return null; // Foundation/floor not required
+            if (!config.Home.ForceOnTopOfFoundation) return null; // Foundation/floor not required
             if (UnderneathFoundation(position))
             {
                 return "HomeFoundationUnderneathFoundation";
             }
 
             var entities = new List<BuildingBlock>();
-            if (_config.Home.AllowAboveFoundation) // Can set on a foundation or floor
+            if (config.Home.AllowAboveFoundation) // Can set on a foundation or floor
             {
 #if DEBUG
                 Puts($"CheckFoundation() looking for foundation or floor at {position.ToString()}");
@@ -5054,7 +5051,7 @@ namespace Oxide.Plugins
 
             if (entities.Count == 0) return "HomeNoFoundation";
 
-            if (!_config.Home.CheckFoundationForOwner) return null;
+            if (!config.Home.CheckFoundationForOwner) return null;
             for (var i = 0; i < entities.Count; i++)
             {
                 if (entities[i].OwnerID == userID) return null;
@@ -5071,7 +5068,7 @@ namespace Oxide.Plugins
 #endif
             var entities = GetFoundation(position);
             if (entities.Count == 0) return null;
-            if (!_config.Home.CheckFoundationForOwner) return entities[0];
+            if (!config.Home.CheckFoundationForOwner) return entities[0];
 
             for (var i = 0; i < entities.Count; i++)
             {
@@ -5085,7 +5082,7 @@ namespace Oxide.Plugins
         // playerid = active player, ownerid = owner of building block, who may be offline
         bool IsFriend(ulong playerid, ulong ownerid)
         {
-            if (_config.Home.UseFriends && Friends != null)
+            if (config.Home.UseFriends && Friends != null)
             {
 #if DEBUG
                 Puts("Checking Friends...");
@@ -5099,7 +5096,7 @@ namespace Oxide.Plugins
                     return True;
                 }
             }
-            if (_config.Home.UseClans && Clans != null)
+            if (config.Home.UseClans && Clans != null)
             {
 #if DEBUG
                 Puts("Checking Clans...");
@@ -5114,7 +5111,7 @@ namespace Oxide.Plugins
                     return True;
                 }
             }
-            if (_config.Home.UseTeams)
+            if (config.Home.UseTeams)
             {
 #if DEBUG
                 Puts("Checking Rust teams...");
@@ -5139,7 +5136,7 @@ namespace Oxide.Plugins
         // Check that we are near the middle of a block.  Also check for high wall overlap
         private bool ValidBlock(BaseEntity entity, Vector3 position)
         {
-            if (!_config.Settings.StrictFoundationCheck)
+            if (!config.Settings.StrictFoundationCheck)
             {
                 return True;
             }
@@ -5272,13 +5269,13 @@ namespace Oxide.Plugins
         }
 
         private bool CheckBoundaries(float x, float y, float z)
-        {   
+        {
             return x <= boundary && x >= -boundary && y <= 2000 && y >= -100 && z <= boundary && z >= -boundary;
         }
 
         private Vector3 GetGround(Vector3 sourcePos)
         {
-            if (!_config.Home.AllowAboveFoundation) return sourcePos;
+            if (!config.Home.AllowAboveFoundation) return sourcePos;
             var newPos = sourcePos;
             newPos.y = TerrainMeta.HeightMap.GetHeight(newPos);
             sourcePos.y += .5f;
@@ -5291,7 +5288,7 @@ namespace Oxide.Plugins
             //if (Physics.SphereCast(sourcePos, .1f, down, out hitinfo, 250, groundLayer))
             if (Physics.Raycast(sourcePos, Down, out hitinfo, 250f, groundLayer))
             {
-                if ((_config.Home.AllowIceberg && hitinfo.collider.name.Contains("iceberg")) || (_config.Home.AllowCave && hitinfo.collider.name.Contains("cave_")))
+                if ((config.Home.AllowIceberg && hitinfo.collider.name.Contains("iceberg")) || (config.Home.AllowCave && hitinfo.collider.name.Contains("cave_")))
                 {
 #if DEBUG
                     Puts("GetGround():   found iceberg or cave");
@@ -5313,7 +5310,7 @@ namespace Oxide.Plugins
             Puts("GetGround(): Looking for cave or rock");
 #endif
             //if (!_config.Home.AllowCave && Physics.SphereCast(sourcePos, .1f, up, out hitinfo, 250, groundLayer) && hitinfo.collider.name.Contains("rock_"))
-            if (!_config.Home.AllowCave && Physics.Raycast(sourcePos, Up, out hitinfo, 250f, groundLayer) && hitinfo.collider.name.Contains("rock_"))
+            if (!config.Home.AllowCave && Physics.Raycast(sourcePos, Up, out hitinfo, 250f, groundLayer) && hitinfo.collider.name.Contains("rock_"))
             {
 #if DEBUG
                 Puts("GetGround():   found cave or rock");
@@ -5377,11 +5374,11 @@ namespace Oxide.Plugins
             var playerAuthLevel = player.net?.connection?.authLevel;
 
             int requiredAuthLevel = 3;
-            if (_config.Admin.UseableByModerators)
+            if (config.Admin.UseableByModerators)
             {
                 requiredAuthLevel = 1;
             }
-            else if (_config.Admin.UseableByAdmins)
+            else if (config.Admin.UseableByAdmins)
             {
                 requiredAuthLevel = 2;
             }
@@ -5397,8 +5394,10 @@ namespace Oxide.Plugins
             return False;
         }
 
-        private int GetHigher(BasePlayer player, Dictionary<string, int> limits, int limit)
+        private int GetHigher(BasePlayer player, Dictionary<string, int> limits, int limit, bool unlimited)
         {
+            if (unlimited && limit == 0) return limit;
+
             foreach (var l in limits)
             {
                 if (permission.UserHasPermission(player.UserIDString, l.Key))
@@ -5431,9 +5430,9 @@ namespace Oxide.Plugins
                 }
             }
         }
-#endregion
+        #endregion
 
-#region Message
+        #region Message
         private string _(string msgId, BasePlayer player, params object[] args)
         {
             var msg = lang.GetMessage(msgId, this, player?.UserIDString);
@@ -5449,11 +5448,11 @@ namespace Oxide.Plugins
         private void PrintMsg(BasePlayer player, string msg)
         {
             if (player == null) return;
-            SendReply(player, $"{_config.Settings.ChatName}{msg}");
+            SendReply(player, $"{config.Settings.ChatName}{msg}");
         }
-#endregion
+        #endregion
 
-#region DrawBox
+        #region DrawBox
         private static void DrawBox(BasePlayer player, Vector3 center, Quaternion rotation, Vector3 size)
         {
             size = size / 2;
@@ -5485,9 +5484,9 @@ namespace Oxide.Plugins
         {
             return rotation * (point - pivot) + pivot;
         }
-#endregion
+        #endregion
 
-#region FindPlayer
+        #region FindPlayer
         private ulong FindPlayersSingleId(string nameOrIdOrIp, BasePlayer player)
         {
             var targets = FindPlayers(nameOrIdOrIp);
@@ -5562,9 +5561,9 @@ namespace Oxide.Plugins
             }
             return players;
         }
-#endregion
+        #endregion
 
-#region API
+        #region API
         private Dictionary<string, Vector3> GetHomes(object playerObj)
         {
             if (playerObj == null) return null;
@@ -5585,7 +5584,7 @@ namespace Oxide.Plugins
             switch (type.ToLower())
             {
                 case "home":
-                    limit = GetLower(player, _config.Home.VIPDailyLimits, _config.Home.DailyLimit);
+                    limit = GetHigher(player, config.Home.VIPDailyLimits, config.Home.DailyLimit, true);
                     HomeData homeData;
                     if (!Home.TryGetValue(player.userID, out homeData))
                     {
@@ -5602,7 +5601,7 @@ namespace Oxide.Plugins
                     }
                     break;
                 case "town":
-                    limit = GetLower(player, _config.Town.VIPDailyLimits, _config.Town.DailyLimit);
+                    limit = GetHigher(player, config.Town.VIPDailyLimits, config.Town.DailyLimit, true);
                     TeleportData townData;
                     if (!Town.TryGetValue(player.userID, out townData))
                     {
@@ -5619,7 +5618,7 @@ namespace Oxide.Plugins
                     }
                     break;
                 case "outpost":
-                    limit = GetLower(player, _config.Outpost.VIPDailyLimits, _config.Outpost.DailyLimit);
+                    limit = GetHigher(player, config.Outpost.VIPDailyLimits, config.Outpost.DailyLimit, true);
                     TeleportData outpostData;
                     if (!Outpost.TryGetValue(player.userID, out outpostData))
                     {
@@ -5636,7 +5635,7 @@ namespace Oxide.Plugins
                     }
                     break;
                 case "bandit":
-                    limit = GetLower(player, _config.Bandit.VIPDailyLimits, _config.Bandit.DailyLimit);
+                    limit = GetHigher(player, config.Bandit.VIPDailyLimits, config.Bandit.DailyLimit, true);
                     TeleportData banditData;
                     if (!Bandit.TryGetValue(player.userID, out banditData))
                     {
@@ -5653,7 +5652,7 @@ namespace Oxide.Plugins
                     }
                     break;
                 case "tpr":
-                    limit = GetLower(player, _config.TPR.VIPDailyLimits, _config.TPR.DailyLimit);
+                    limit = GetHigher(player, config.TPR.VIPDailyLimits, config.TPR.DailyLimit, true);
                     TeleportData tprData;
                     if (!TPR.TryGetValue(player.userID, out tprData))
                     {
@@ -5683,7 +5682,7 @@ namespace Oxide.Plugins
             switch (type.ToLower())
             {
                 case "home":
-                    cooldown = GetLower(player, _config.Home.VIPCooldowns, _config.Home.Cooldown);
+                    cooldown = GetLower(player, config.Home.VIPCooldowns, config.Home.Cooldown);
                     HomeData homeData;
                     if (!Home.TryGetValue(player.userID, out homeData))
                     {
@@ -5700,7 +5699,7 @@ namespace Oxide.Plugins
                     }
                     break;
                 case "town":
-                    cooldown = GetLower(player, _config.Town.VIPCooldowns, _config.Town.Cooldown);
+                    cooldown = GetLower(player, config.Town.VIPCooldowns, config.Town.Cooldown);
                     TeleportData townData;
                     if (!Town.TryGetValue(player.userID, out townData))
                     {
@@ -5717,7 +5716,7 @@ namespace Oxide.Plugins
                     }
                     break;
                 case "outpost":
-                    cooldown = GetLower(player, _config.Outpost.VIPCooldowns, _config.Outpost.Cooldown);
+                    cooldown = GetLower(player, config.Outpost.VIPCooldowns, config.Outpost.Cooldown);
                     TeleportData outpostData;
                     if (!Outpost.TryGetValue(player.userID, out outpostData))
                     {
@@ -5734,7 +5733,7 @@ namespace Oxide.Plugins
                     }
                     break;
                 case "bandit":
-                    cooldown = GetLower(player, _config.Bandit.VIPCooldowns, _config.Bandit.Cooldown);
+                    cooldown = GetLower(player, config.Bandit.VIPCooldowns, config.Bandit.Cooldown);
                     TeleportData banditData;
                     if (!Bandit.TryGetValue(player.userID, out banditData))
                     {
@@ -5751,7 +5750,7 @@ namespace Oxide.Plugins
                     }
                     break;
                 case "tpr":
-                    cooldown = GetLower(player, _config.TPR.VIPCooldowns, _config.TPR.Cooldown);
+                    cooldown = GetLower(player, config.TPR.VIPCooldowns, config.TPR.Cooldown);
                     TeleportData tprData;
                     if (!TPR.TryGetValue(player.userID, out tprData))
                     {
@@ -5770,7 +5769,7 @@ namespace Oxide.Plugins
             }
             return remaining;
         }
-#endregion
+        #endregion
 
         private class UnityVector3Converter : JsonConverter
         {
@@ -5853,7 +5852,10 @@ namespace Oxide.Plugins
                 Home[player.userID] = homeData = new HomeData();
             }
 
-            var limit = GetHigher(player, _config.Home.VIPHomesLimits, _config.Home.HomesLimit);
+            var limit = GetHigher(player, config.Home.VIPHomesLimits, config.Home.HomesLimit, true);
+
+            if (limit == 0) return True;
+
             return homeData.Locations.Count < limit;
         }
 
@@ -6028,7 +6030,7 @@ namespace Oxide.Plugins
             }
 
             var config = new Configuration();
-            
+
             config.Admin.AnnounceTeleportToTarget = oldConfig.Admin.AnnounceTeleportToTarget;
             config.Admin.LocationRadius = oldConfig.Admin.LocationRadius;
             config.Admin.TeleportNearDefaultDistance = oldConfig.Admin.TeleportNearDefaultDistance;
@@ -6108,7 +6110,7 @@ namespace Oxide.Plugins
             config.Settings.UseEconomics = oldConfig.Settings.UseEconomics;
             config.Settings.UseServerRewards = oldConfig.Settings.UseServerRewards;
             config.Settings.WipeOnUpgradeOrChange = oldConfig.Settings.WipeOnUpgradeOrChange;
-            
+
             config.Town.AllowCraft = oldConfig.Town.AllowCraft;
             config.Town.Bypass = oldConfig.Town.Bypass;
             config.Town.Cooldown = oldConfig.Town.Cooldown;
