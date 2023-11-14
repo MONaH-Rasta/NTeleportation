@@ -22,7 +22,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.7.3")]
+    [Info("NTeleportation", "nivex", "1.7.4")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -334,6 +334,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Teleport Near Default Distance")]
             public int TeleportNearDefaultDistance { get; set; } = 30;
+
+            [JsonProperty(PropertyName = "Extra Distance To Block Monument Teleporting")]
+            public int ExtraMonumentDistance { get; set; }
         }
 
         public class HomesSettings
@@ -2279,6 +2282,7 @@ namespace Oxide.Plugins
             permission.RegisterPermission("nteleportation.ignoreglobalcooldown", this);
             permission.RegisterPermission("nteleportation.norestrictions", this);
             permission.RegisterPermission("nteleportation.globalcooldownvip", this);
+            permission.RegisterPermission(PermAdmin, this);
             permission.RegisterPermission(PermFoundationCheck, this);
             permission.RegisterPermission(PermDeleteHome, this);
             permission.RegisterPermission(PermHome, this);
@@ -2820,12 +2824,13 @@ namespace Oxide.Plugins
                 {
                     yield return SetupBandit(monument);
                 }
-                else if (monument.Bounds.size.Max() > 0f)
+                else if (monument.Bounds.extents.Max() > 0f)
                 {
+                    var dist = monument.Bounds.extents.Max() + config.Admin.ExtraMonumentDistance;
 #if DEBUG
-                    Puts($"Adding Monument: {name}, pos: {monPos}, size: {monument.Bounds.size.Max()}");
+                    Puts($"Adding Monument: {name}, pos: {monPos}, size: {dist}");
 #endif
-                    monuments.Add(new MonumentInfoEx(monument.transform.position, monument.Bounds.size.Max(), monument.displayPhrase.english.Trim(), monument.name));
+                    monuments.Add(new MonumentInfoEx(monument.transform.position, dist, monument.displayPhrase.english.Trim(), monument.name));
                 }
                 else yield return CalculateMonumentSize(monument.transform.position, string.IsNullOrEmpty(monument.displayPhrase.english.Trim()) ? monument.name : monument.displayPhrase.english.Trim(), monument.name);
             }
@@ -3086,7 +3091,7 @@ namespace Oxide.Plugins
             CommandTeleportCancel(player.IPlayer, "tpc", new string[0]);
         }
 
-        private bool OutOfRange(MonumentInfo m, Vector3 a, bool checkHeight) => checkHeight && Mathf.Abs(m.transform.position.y - a.y) > 10f || m.Distance(a) > m.Bounds.extents.Max();
+        private bool OutOfRange(MonumentInfo m, Vector3 a, bool checkHeight) => checkHeight && Mathf.Abs(m.transform.position.y - a.y) > 5f || m.Distance(a) > m.Bounds.extents.Max();
 
         private void CommandToggle(IPlayer user, string command, string[] args)
         {
