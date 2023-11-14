@@ -18,28 +18,50 @@ using System.Reflection;
 using Oxide.Core.Libraries.Covalence;
 
 /*
-    1.2.0:
-    Configuration rewritten to fix issues with it resetting after an update, being difficult to read, and to meet standards. Your config will convert automatically.
-    Added announcement to server console on additions and removals after updating
-    Added `Settings -> Check Boundaries On Teleport X Y Z (true)`
-    Added `Settings -> TPR > Allow TPB (true)`
-    Added `Settings -> Draw Sphere On Set Home (true)`
-    Added `Settings -> Block Teleport (NoEscape) (false)`
-    Added `Settings -> Block Teleport (ZoneManager) (false)`
+    1.2.1:
+    Configuration rewritten to fix issues with resetting, being difficult to read, and to meet standards. Your config will convert automatically.
+
+    Added announcement to server console on additions/removals after updating
+
+    Added messages for bandit and outpost when using /tpinfo
+
+    Added `Settings > Check Boundaries On Teleport X Y Z (true)`
+
+    Added `Settings > TPR > Allow TPB (true)`
+
+    Added `Settings > Draw Sphere On Set Home (true)`
+
+    Added `Settings > Block Teleport (NoEscape) (false)`
+
+    Added `Settings > Block Teleport (ZoneManager) (false)`
+
     Added multiple null checks
+
     Added use of cached variables for true, false, up, down, zero
-    Added command `/spm` as a tool for admins to report inaccurate monument extents @Tanki
-    Fixed `/tp player x y z` Credits @Marcus101RR
+
+    Added command `/spm` as a tool for admins @Tanki
+
+    Fixed `/tp player x y z` @Marcus101RR
+
     Fixed AutoGenBandit not generating
+
     Fixed AutoGenBandit position
+
     Fixed AutoGenOutpost not generating
-    Fixed issues with interrupt monument not working correctly at various monuments
-    Removed test code for TPP
+
+    Fixed issues with interrupt monument not working correctly
+
+    Removed test code
+
     Removed some unused variables
-	Rewrote various bits of outdated code
+
+    Rewrote various bits of outdated code
+
     Converted all commands to covalence
-    Added command tnt [commandname] to toggle enabling and disabling of specific commands. Usable from server console, in-game console and in-game chat. Requires admin.
-    Valid command name: tp, home, sethome, listhomes, tpn, tpl, tpsave, tpremove, tpb, removehome, radiushome, deletehome, tphome, homehomes, tpt, tpr, tpa, wipehomes, tphelp, tpinfo, tpc, teleport.toplayer, teleport.topos, teleport.importhomes, spm, outpost, bandit
+
+    Added command `tnt [commandname]` to toggle enabling and disabling of commands. Usable from consoles, and in-game chat. Requires admin.
+
+    Limits tweaked to favor the upper limit @xanela
 
     1.1.7:
     Disabled debug, oops
@@ -106,7 +128,7 @@ using Oxide.Core.Libraries.Covalence;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.0")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.1")]
     class NTeleportation : RustPlugin
     {
         private const bool True = true;
@@ -140,7 +162,8 @@ namespace Oxide.Plugins
         private const string PermCraftOutpost = "nteleportation.craftoutpost";
         private const string PermCraftBandit = "nteleportation.craftbandit";
         private const string PermCraftTpR = "nteleportation.crafttpr";
-        private DynamicConfigFile dataFile;
+        private DynamicConfigFile dataConvert;
+        private DynamicConfigFile dataDisabled;
         private DynamicConfigFile dataAdmin;
         private DynamicConfigFile dataHome;
         private DynamicConfigFile dataTPR;
@@ -652,17 +675,25 @@ namespace Oxide.Plugins
             base.LoadConfig();
             try
             {
-                dataFile = GetFile(nameof(NTeleportation));
-                storedData = dataFile.ReadObject<StoredData>();
+                dataConvert = GetFile(nameof(NTeleportation) + "Converted");
+                convertData = dataConvert.ReadObject<ConvertData>();
             }
             catch { }
-            if (storedData == null) storedData = new StoredData();
+            if (convertData == null) convertData = new ConvertData();
+
+            try
+            {
+                dataDisabled = GetFile(nameof(NTeleportation) + "DisabledCommands");
+                disabledData = dataDisabled.ReadObject<DisabledData>();
+            }
+            catch { }
+            if (disabledData == null) disabledData = new DisabledData();
 
             try
             {
                 Config.Settings.ReferenceLoopHandling = ReferenceLoopHandling.Ignore;
                 Config.Settings.Converters = new JsonConverter[] { new UnityVector3Converter() };
-                if (!storedData.Converted_1_2_0)
+                if (!convertData.Converted_1_2_0)
                 {
                     try
                     {
@@ -734,18 +765,25 @@ namespace Oxide.Plugins
         
         #endregion
 
-        class StoredData
+        class ConvertData
         {
             [JsonProperty("Last version config was converted")]
             public bool Converted_1_2_0 { get; set; }
 
+            public ConvertData() { }
+        }
+
+        ConvertData convertData = new ConvertData();
+
+        class DisabledData
+        {
             [JsonProperty("List of disabled commands")]
             public List<string> DisabledCommands = new List<string>();
 
-            public StoredData() { }
+            public DisabledData() { }
         }
 
-        StoredData storedData = new StoredData();
+        DisabledData disabledData = new DisabledData();
 
         class AdminData
         {
@@ -1009,6 +1047,22 @@ namespace Oxide.Plugins
                         "Time between teleports: {0}",
                         "Daily amount of teleports: {1}",
                         "Amount of saved Home locations: {2}"
+                    })
+                },
+                {
+                    "TPSettingsbandit", string.Join(NewLine, new[]
+                    {
+                        "Bandit System has the current settings enabled:",
+                        "Time between teleports: {0}",
+                        "Daily amount of teleports: {1}"
+                    })
+                },
+                {
+                    "TPSettingsoutpost", string.Join(NewLine, new[]
+                    {
+                        "Bandit System has the current settings enabled:",
+                        "Time between teleports: {0}",
+                        "Daily amount of teleports: {1}"
                     })
                 },
                 {
@@ -2142,14 +2196,15 @@ namespace Oxide.Plugins
             string arg = args[0].ToLower();
 
             if (arg == command.ToLower()) return;
-            if (!storedData.DisabledCommands.Remove("tp")) storedData.DisabledCommands.Add("tp");
+            if (!disabledData.DisabledCommands.Remove("tp")) disabledData.DisabledCommands.Add("tp");
 
-            p.Reply("{0} {1}", null, storedData.DisabledCommands.Contains("tp") ? "Disabled:" : "Enabled:", arg);
+            dataDisabled.WriteObject(disabledData);
+            p.Reply("{0} {1}", null, disabledData.DisabledCommands.Contains("tp") ? "Disabled:" : "Enabled:", arg);
         }
 
         private void CommandTeleport(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTp)) return;
             BasePlayer target;
@@ -2243,7 +2298,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportNear(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpN)) return;
             switch (args.Length)
@@ -2283,7 +2338,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportLocation(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpL)) return;
             AdminData adminData;
@@ -2317,7 +2372,7 @@ namespace Oxide.Plugins
 
         private void CommandSaveTeleportLocation(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpSave)) return;
             if (args.Length != 1)
@@ -2350,7 +2405,7 @@ namespace Oxide.Plugins
 
         private void CommandRemoveTeleportLocation(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpRemove)) return;
             if (args.Length != 1)
@@ -2375,7 +2430,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportBack(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpB)) return;
             if (args.Length != 0)
@@ -2399,7 +2454,7 @@ namespace Oxide.Plugins
 
         private void CommandSetHome(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowed(player, PermHome) || !_config.Settings.HomesEnabled) return;
             if (args.Length != 1)
@@ -2476,7 +2531,7 @@ namespace Oxide.Plugins
 
         private void CommandRemoveHome(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             if (!_config.Settings.HomesEnabled) return;
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowed(player, PermHome)) return;
@@ -2502,7 +2557,7 @@ namespace Oxide.Plugins
 
         private void CommandHome(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             if (!_config.Settings.HomesEnabled) return;
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowed(player, PermHome)) return;
@@ -2546,7 +2601,7 @@ namespace Oxide.Plugins
 
         private void CommandHomeRadius(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermRadiusHome)) return;
             float radius;
@@ -2585,7 +2640,7 @@ namespace Oxide.Plugins
 
         private void CommandHomeDelete(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermDeleteHome)) return;
             if (args.Length != 2)
@@ -2607,7 +2662,7 @@ namespace Oxide.Plugins
 
         private void CommandHomeAdminTP(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpHome)) return;
             if (args.Length != 2)
@@ -2694,7 +2749,7 @@ namespace Oxide.Plugins
 
         private void cmdChatHomeTP(BasePlayer player, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { player.ChatMessage("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { player.ChatMessage("Disabled command."); return; }
             if (!IsAllowed(player, PermHome)) return;
             bool paidmoney = False;
             if (!_config.Settings.HomesEnabled) return;
@@ -2925,7 +2980,7 @@ namespace Oxide.Plugins
 
         private void CommandListHomes(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !_config.Settings.HomesEnabled) return;
             if (args.Length != 0)
@@ -2967,7 +3022,7 @@ namespace Oxide.Plugins
 
         private void CommandHomeHomes(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermHomeHomes)) return;
             if (args.Length != 1)
@@ -3005,7 +3060,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportTeam(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             if (!_config.TPT.UseClans && !_config.TPT.UseFriends && !_config.TPT.UseTeams)
                 return;
 
@@ -3099,7 +3154,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportRequest(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpR) || !_config.Settings.TPREnabled) return;
             if (args.Length == 0)
@@ -3265,7 +3320,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportAccept(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !_config.Settings.TPREnabled) return;
             if (args.Length != 0)
@@ -3397,7 +3452,7 @@ namespace Oxide.Plugins
 
         private void CommandWipeHomes(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermWipeHomes)) return;
             Home.Clear();
@@ -3407,7 +3462,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportHelp(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player) return;
             if (!_config.Settings.HomesEnabled && !_config.Settings.TPREnabled && !IsAllowedMsg(player)) return;
@@ -3435,7 +3490,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportInfo(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             if (!_config.Settings.HomesEnabled && !_config.Settings.TPREnabled && !_config.Settings.TownEnabled) return;
             var player = p.Object as BasePlayer;
             if (!player) return;
@@ -3451,9 +3506,9 @@ namespace Oxide.Plugins
                 switch (module)
                 {
                     case "home":
-                        limit = GetHigher(player, _config.Home.VIPDailyLimits, _config.Home.DailyLimit);
+                        limit = GetLower(player, _config.Home.VIPDailyLimits, _config.Home.DailyLimit);
                         cooldown = GetLower(player, _config.Home.VIPCooldowns, _config.Home.Cooldown);
-                        PrintMsg(player, string.Format(msg, FormatTime(cooldown), limit > 0 ? limit.ToString() : _("Unlimited", player), GetHigher(player, _config.Home.VIPHomesLimits, _config.Home.HomesLimit)));
+                        PrintMsg(player, string.Format(msg, FormatTime(cooldown), limit > 0 ? limit.ToString() : _("Unlimited", player), GetLower(player, _config.Home.VIPHomesLimits, _config.Home.HomesLimit)));
                         HomeData homeData;
                         if (!Home.TryGetValue(player.userID, out homeData))
                             Home[player.userID] = homeData = new HomeData();
@@ -3470,7 +3525,7 @@ namespace Oxide.Plugins
                         }
                         break;
                     case "tpr":
-                        limit = GetHigher(player, _config.TPR.VIPDailyLimits, _config.TPR.DailyLimit);
+                        limit = GetLower(player, _config.TPR.VIPDailyLimits, _config.TPR.DailyLimit);
                         cooldown = GetLower(player, _config.TPR.VIPCooldowns, _config.TPR.Cooldown);
                         PrintMsg(player, string.Format(msg, FormatTime(cooldown), limit > 0 ? limit.ToString() : _("Unlimited", player)));
                         if (!TPR.TryGetValue(player.userID, out teleportData))
@@ -3488,7 +3543,7 @@ namespace Oxide.Plugins
                         }
                         break;
                     case "town":
-                        limit = GetHigher(player, _config.Town.VIPDailyLimits, _config.Town.DailyLimit);
+                        limit = GetLower(player, _config.Town.VIPDailyLimits, _config.Town.DailyLimit);
                         cooldown = GetLower(player, _config.Town.VIPCooldowns, _config.Town.Cooldown);
                         PrintMsg(player, string.Format(msg, FormatTime(cooldown), limit > 0 ? limit.ToString() : _("Unlimited", player)));
                         if (!Town.TryGetValue(player.userID, out teleportData))
@@ -3508,7 +3563,7 @@ namespace Oxide.Plugins
                         }
                         break;
                     case "outpost":
-                        limit = GetHigher(player, _config.Outpost.VIPDailyLimits, _config.Outpost.DailyLimit);
+                        limit = GetLower(player, _config.Outpost.VIPDailyLimits, _config.Outpost.DailyLimit);
                         cooldown = GetLower(player, _config.Outpost.VIPCooldowns, _config.Outpost.Cooldown);
                         PrintMsg(player, string.Format(msg, FormatTime(cooldown), limit > 0 ? limit.ToString() : _("Unlimited", player)));
                         if (!Outpost.TryGetValue(player.userID, out teleportData))
@@ -3528,7 +3583,7 @@ namespace Oxide.Plugins
                         }
                         break;
                     case "bandit":
-                        limit = GetHigher(player, _config.Bandit.VIPDailyLimits, _config.Bandit.DailyLimit);
+                        limit = GetLower(player, _config.Bandit.VIPDailyLimits, _config.Bandit.DailyLimit);
                         cooldown = GetLower(player, _config.Bandit.VIPCooldowns, _config.Bandit.Cooldown);
                         PrintMsg(player, string.Format(msg, FormatTime(cooldown), limit > 0 ? limit.ToString() : _("Unlimited", player)));
                         if (!Bandit.TryGetValue(player.userID, out teleportData))
@@ -3571,7 +3626,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportCancel(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             if (!_config.Settings.TPREnabled) return;
             var player = p.Object as BasePlayer;
             if (!player) return;
@@ -3626,7 +3681,7 @@ namespace Oxide.Plugins
 
         private void CommandOutpost(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             if (_config.Settings.OutpostEnabled)
             {
                 CommandTown(p, "outpost", args);
@@ -3635,7 +3690,7 @@ namespace Oxide.Plugins
 
         private void CommandBandit(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             if (_config.Settings.BanditEnabled)
             {
                 CommandTown(p, "bandit", args);
@@ -3644,7 +3699,7 @@ namespace Oxide.Plugins
 
         private void CommandTown(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (!player) return;
 #if DEBUG
@@ -3790,7 +3845,7 @@ namespace Oxide.Plugins
                     msgCooldownBypassP = "OutpostTPCooldownBypassP";
                     msgCooldownBypassP2 = "OutpostTPCooldownBypassP2";
                     msgLimitReached = "OutpostTPLimitReached";
-                    limit = GetHigher(player, _config.Outpost.VIPDailyLimits, _config.Outpost.DailyLimit);
+                    limit = GetLower(player, _config.Outpost.VIPDailyLimits, _config.Outpost.DailyLimit);
                     break;
                 case "bandit":
                     err = CheckPlayer(player, _config.Bandit.UsableOutOfBuildingBlocked, CanCraftBandit(player), True, "bandit");
@@ -3825,7 +3880,7 @@ namespace Oxide.Plugins
                     msgCooldownBypassP = "BanditTPCooldownBypassP";
                     msgCooldownBypassP2 = "BanditTPCooldownBypassP2";
                     msgLimitReached = "BanditTPLimitReached";
-                    limit = GetHigher(player, _config.Bandit.VIPDailyLimits, _config.Bandit.DailyLimit);
+                    limit = GetLower(player, _config.Bandit.VIPDailyLimits, _config.Bandit.DailyLimit);
                     break;
                 case "town":
                 default:
@@ -3855,7 +3910,7 @@ namespace Oxide.Plugins
                     msgCooldownBypassP = "TownTPCooldownBypassP";
                     msgCooldownBypassP2 = "TownTPCooldownBypassP2";
                     msgLimitReached = "TownTPLimitReached";
-                    limit = GetHigher(player, _config.Town.VIPDailyLimits, _config.Town.DailyLimit);
+                    limit = GetLower(player, _config.Town.VIPDailyLimits, _config.Town.DailyLimit);
                     break;
             }
 
@@ -4172,7 +4227,7 @@ namespace Oxide.Plugins
 
         private void CommandTeleportII(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
             if (player != null && !IsAllowedMsg(player, PermTpConsole)) return;
             HashSet<BasePlayer> players;
@@ -4326,7 +4381,7 @@ namespace Oxide.Plugins
 
         private void CommandSphereMonuments(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p?.Object as BasePlayer;
             if (!player || !player.IsAdmin) return;
 
@@ -4356,7 +4411,7 @@ namespace Oxide.Plugins
 
         private void CommandImportHomes(IPlayer p, string command, string[] args)
         {
-            if (storedData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
+            if (disabledData.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command."); return; }
             var player = p.Object as BasePlayer;
 
             if (player != null && !IsAllowedMsg(player, PermImportHomes))
@@ -5346,9 +5401,9 @@ namespace Oxide.Plugins
         {
             foreach (var l in limits)
             {
-                if (permission.UserHasPermission(player.UserIDString, l.Key) && l.Value > limit)
+                if (permission.UserHasPermission(player.UserIDString, l.Key))
                 {
-                    limit = l.Value;
+                    limit = Math.Max(l.Value, limit);
                 }
             }
             return limit;
@@ -5358,9 +5413,9 @@ namespace Oxide.Plugins
         {
             foreach (var l in times)
             {
-                if (permission.UserHasPermission(player.UserIDString, l.Key) && l.Value < time)
+                if (permission.UserHasPermission(player.UserIDString, l.Key))
                 {
-                    time = l.Value;
+                    time = Math.Min(l.Value, time);
                 }
             }
             return time;
@@ -5530,7 +5585,7 @@ namespace Oxide.Plugins
             switch (type.ToLower())
             {
                 case "home":
-                    limit = GetHigher(player, _config.Home.VIPDailyLimits, _config.Home.DailyLimit);
+                    limit = GetLower(player, _config.Home.VIPDailyLimits, _config.Home.DailyLimit);
                     HomeData homeData;
                     if (!Home.TryGetValue(player.userID, out homeData))
                     {
@@ -5547,7 +5602,7 @@ namespace Oxide.Plugins
                     }
                     break;
                 case "town":
-                    limit = GetHigher(player, _config.Town.VIPDailyLimits, _config.Town.DailyLimit);
+                    limit = GetLower(player, _config.Town.VIPDailyLimits, _config.Town.DailyLimit);
                     TeleportData townData;
                     if (!Town.TryGetValue(player.userID, out townData))
                     {
@@ -5564,7 +5619,7 @@ namespace Oxide.Plugins
                     }
                     break;
                 case "outpost":
-                    limit = GetHigher(player, _config.Outpost.VIPDailyLimits, _config.Outpost.DailyLimit);
+                    limit = GetLower(player, _config.Outpost.VIPDailyLimits, _config.Outpost.DailyLimit);
                     TeleportData outpostData;
                     if (!Outpost.TryGetValue(player.userID, out outpostData))
                     {
@@ -5581,7 +5636,7 @@ namespace Oxide.Plugins
                     }
                     break;
                 case "bandit":
-                    limit = GetHigher(player, _config.Bandit.VIPDailyLimits, _config.Bandit.DailyLimit);
+                    limit = GetLower(player, _config.Bandit.VIPDailyLimits, _config.Bandit.DailyLimit);
                     TeleportData banditData;
                     if (!Bandit.TryGetValue(player.userID, out banditData))
                     {
@@ -5598,7 +5653,7 @@ namespace Oxide.Plugins
                     }
                     break;
                 case "tpr":
-                    limit = GetHigher(player, _config.TPR.VIPDailyLimits, _config.TPR.DailyLimit);
+                    limit = GetLower(player, _config.TPR.VIPDailyLimits, _config.TPR.DailyLimit);
                     TeleportData tprData;
                     if (!TPR.TryGetValue(player.userID, out tprData))
                     {
@@ -6098,8 +6153,8 @@ namespace Oxide.Plugins
             config.TPR.VIPCountdowns = oldConfig.TPR.VIPCountdowns?.ToDictionary(x => x.Key, x => x.Value) ?? config.TPR.VIPCountdowns;
             config.TPR.VIPDailyLimits = oldConfig.TPR.VIPDailyLimits?.ToDictionary(x => x.Key, x => x.Value) ?? config.TPR.VIPDailyLimits;
 
-            storedData.Converted_1_2_0 = true;
-            dataFile.WriteObject(storedData);
+            convertData.Converted_1_2_0 = true;
+            dataConvert.WriteObject(convertData);
             Config.WriteObject<Configuration>(config);
             oldConfig = null;
             Puts("Converted config.");
