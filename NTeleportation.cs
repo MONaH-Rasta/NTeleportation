@@ -19,18 +19,22 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
-    1.3.3:
-    Fixed GetFloor.NullReferenceException
-    Rewrote method that finds players
-    Attempted to fix issues with setting homes
-    Attempted to fix issues with homes being removed
+    1.3.4:
+    Added `Chat Steam64ID` (76561199056025689)
+    Better wipe detection
+    Fix for players using commands offline in the Rust+ app
+    Fix for teleporting while building blocked
+    Fix for not finding foundation
+    Removed teleport component from TPT command - this command is used only to allow insta TPA
+    Using command /tpr on a friend/ally/team mate will now instantly TPA if enabled by the server and player
 */
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.3")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.4")]
     class NTeleportation : RustPlugin
     {
+        private bool newSave;
         private string banditPrefab;
         private string outpostPrefab;
         private const bool True = true;
@@ -76,7 +80,7 @@ namespace Oxide.Plugins
         private Dictionary<ulong, AdminData> Admin;
         private Dictionary<ulong, HomeData> Home;
         private Dictionary<ulong, TeleportData> TPR;
-        private Dictionary<ulong, List<string>> TPT;
+        private Dictionary<string, List<string>> TPT;
         private Dictionary<ulong, TeleportData> Town;
         private Dictionary<ulong, TeleportData> Outpost;
         private Dictionary<ulong, TeleportData> Bandit;
@@ -176,6 +180,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Chat Name")]
             public string ChatName { get; set; } = "<color=red>Teleportation</color>: ";
+
+            [JsonProperty(PropertyName = "Chat Steam64ID")]
+            public ulong ChatID { get; set; } = 76561199056025689;
 
             [JsonProperty(PropertyName = "Check Boundaries On Teleport X Y Z")]
             public bool CheckBoundaries { get; set; } = True;
@@ -337,16 +344,16 @@ namespace Oxide.Plugins
         public class TPTSettings
         {
             [JsonProperty(PropertyName = "Use Friends")]
-            public bool UseFriends { get; set; } = True;
+            public bool UseFriends { get; set; }
 
             [JsonProperty(PropertyName = "Use Clans")]
-            public bool UseClans { get; set; } = True;
+            public bool UseClans { get; set; }
 
             [JsonProperty(PropertyName = "Use Teams")]
-            public bool UseTeams { get; set; } = True;
+            public bool UseTeams { get; set; }
 
             [JsonProperty(PropertyName = "Allow Cave")]
-            public bool AllowCave { get; set; } = False;
+            public bool AllowCave { get; set; }
         }
 
         public class TPRSettings
@@ -1453,7 +1460,7 @@ namespace Oxide.Plugins
             dataHome = GetFile(nameof(NTeleportation) + "Home");
             Home = dataHome.ReadObject<Dictionary<ulong, HomeData>>();
             dataTPT = GetFile(nameof(NTeleportation) + "TPT");
-            TPT = dataTPT.ReadObject<Dictionary<ulong, List<string>>>();
+            TPT = dataTPT.ReadObject<Dictionary<string, List<string>>>();
             dataTPR = GetFile(nameof(NTeleportation) + "TPR");
             TPR = dataTPR.ReadObject<Dictionary<ulong, TeleportData>>();
             dataTown = GetFile(nameof(NTeleportation) + "Town");
@@ -1518,8 +1525,37 @@ namespace Oxide.Plugins
             return file;
         }
 
+        private void CheckNewSave()
+        {
+            if (!newSave && BuildingManager.server.buildingDictionary.Count == 0)
+            {
+                newSave = true;
+            }
+
+            if (!newSave)
+            {
+                return;
+            }
+
+            if (config.Settings.WipeOnUpgradeOrChange)
+            {
+                Puts("Rust was upgraded or map changed - clearing homes, town, outpost and bandit!");
+                Home.Clear();
+                changedHome = True;
+                config.Town.Location = Zero;
+                config.Outpost.Location = Zero;
+                config.Bandit.Location = Zero;
+                SaveConfig();
+            }
+            else
+            {
+                Puts("Rust was upgraded or map changed - homes, town, outpost and bandit may be invalid!");
+            }
+        }
+
         void OnServerInitialized()
         {
+            CheckNewSave();
             banditPrefab = StringPool.Get(2074025910);
             banditEnabled = config.Settings.BanditEnabled;
             outpostPrefab = StringPool.Get(1879405026);
@@ -1595,20 +1631,7 @@ namespace Oxide.Plugins
 
         void OnNewSave(string strFilename)
         {
-            if (config.Settings.WipeOnUpgradeOrChange)
-            {
-                Puts("Rust was upgraded or map changed - clearing homes, town, outpost and bandit!");
-                Home.Clear();
-                changedHome = True;
-                config.Town.Location = Zero;
-                config.Outpost.Location = Zero;
-                config.Bandit.Location = Zero;
-                SaveConfig();
-            }
-            else
-            {
-                Puts("Rust was upgraded or map changed - homes, town, outpost and bandit may be invalid!");
-            }
+            newSave = true;
         }
 
         void OnServerSave()
@@ -2011,7 +2034,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermTp)) return;
+            if (!player || !IsAllowedMsg(player, PermTp) || !player.IsConnected || player.IsSleeping()) return;
             BasePlayer target;
             float x, y, z;
             switch (args.Length)
@@ -2105,7 +2128,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermTpN)) return;
+            if (!player || !IsAllowedMsg(player, PermTpN) || !player.IsConnected || player.IsSleeping()) return;
             switch (args.Length)
             {
                 case 1:
@@ -2145,7 +2168,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermTpL)) return;
+            if (!player || !IsAllowedMsg(player, PermTpL) || !player.IsConnected || player.IsSleeping()) return;
             AdminData adminData;
             if (!Admin.TryGetValue(player.userID, out adminData) || adminData.Locations.Count <= 0)
             {
@@ -2179,7 +2202,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermTpSave)) return;
+            if (!player || !IsAllowedMsg(player, PermTpSave) || !player.IsConnected || player.IsSleeping()) return;
             if (args.Length != 1)
             {
                 PrintMsgL(player, "SyntaxCommandTPSave");
@@ -2212,7 +2235,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermTpRemove)) return;
+            if (!player || !IsAllowedMsg(player, PermTpRemove) || !player.IsConnected || player.IsSleeping()) return;
             if (args.Length != 1)
             {
                 PrintMsgL(player, "SyntaxCommandTPRemove");
@@ -2237,7 +2260,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermTpB)) return;
+            if (!player || !IsAllowedMsg(player, PermTpB) || !player.IsConnected || player.IsSleeping()) return;
             if (args.Length != 0)
             {
                 PrintMsgL(player, "SyntaxCommandTPB");
@@ -2261,7 +2284,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowed(player, PermHome)) return;
+            if (!player || !IsAllowed(player, PermHome) || !player.IsConnected || player.IsSleeping()) return;
             if (!config.Settings.HomesEnabled) { p.Reply("Homes are not enabled in the config."); return; }
             if (args.Length != 1)
             {
@@ -2346,7 +2369,7 @@ namespace Oxide.Plugins
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             if (!config.Settings.HomesEnabled) { p.Reply("Homes are not enabled in the config."); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowed(player, PermHome)) return;
+            if (!player || !IsAllowed(player, PermHome) || !player.IsConnected || player.IsSleeping()) return;
             if (args.Length != 1)
             {
                 PrintMsgL(player, "SyntaxCommandRemoveHome");
@@ -2372,7 +2395,7 @@ namespace Oxide.Plugins
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             if (!config.Settings.HomesEnabled) { p.Reply("Homes are not enabled in the config."); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowed(player, PermHome)) return;
+            if (!player || !IsAllowed(player, PermHome) || !player.IsConnected || player.IsSleeping()) return;
             if (args.Length == 0)
             {
                 PrintMsgL(player, "SyntaxCommandHome");
@@ -2415,7 +2438,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermRadiusHome)) return;
+            if (!player || !IsAllowedMsg(player, PermRadiusHome) || !player.IsConnected || player.IsSleeping()) return;
             float radius;
             if (args.Length != 1 || !float.TryParse(args[0], out radius)) radius = 10;
             var found = False;
@@ -2454,7 +2477,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermDeleteHome)) return;
+            if (!player || !IsAllowedMsg(player, PermDeleteHome) || !player.IsConnected || player.IsSleeping()) return;
             if (args.Length != 2)
             {
                 PrintMsgL(player, "SyntaxCommandHomeDelete");
@@ -2476,7 +2499,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermTpHome)) return;
+            if (!player || !IsAllowedMsg(player, PermTpHome) || !player.IsConnected || player.IsSleeping()) return;
             if (args.Length != 2)
             {
                 PrintMsgL(player, "SyntaxCommandHomeAdminTP");
@@ -2563,7 +2586,7 @@ namespace Oxide.Plugins
         private void cmdChatHomeTP(BasePlayer player, string command, string[] args)
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { player.ChatMessage("Disabled command."); return; }
-            if (!IsAllowed(player, PermHome)) return;
+            if (!IsAllowed(player, PermHome) || !player.IsConnected || player.IsSleeping()) return;
             bool paidmoney = False;
             if (!config.Settings.HomesEnabled) { player.ChatMessage("Homes are not enabled in the config."); return; }
             if (args.Length < 1)
@@ -2796,7 +2819,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player) return;
+            if (!player || !player.IsConnected || player.IsSleeping()) return;
             if (!config.Settings.HomesEnabled) { p.Reply("Homes are not enabled in the config."); return; }
             if (args.Length != 0)
             {
@@ -2839,7 +2862,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermHomeHomes)) return;
+            if (!player || !IsAllowedMsg(player, PermHomeHomes) || !player.IsConnected || player.IsSleeping()) return;
             if (args.Length != 1)
             {
                 PrintMsgL(player, "SyntaxCommandHomeHomes");
@@ -2885,7 +2908,6 @@ namespace Oxide.Plugins
 
             if (args.Length < 1)
             {
-                PrintMsgL(player, "SyntaxCommandTPT");
                 PrintMsgL(player, "TPTInfo");
                 return;
             }
@@ -2902,44 +2924,75 @@ namespace Oxide.Plugins
                         }
                 }
 
-                var target = FindPlayersSingle(args[0], player);
-                if (target == null || target.IPlayer == null)
-                {
-                    return;
-                }
-
-                if (target == player)
-                {
-                    PrintMsgL(player, "CantTeleportToSelf");
-                    return;
-                }
-
-                string playerClan = Clans?.Call<string>("GetClanOf", player.UserIDString);
-                string targetClan = Clans?.Call<string>("GetClanOf", target.UserIDString);
-                bool enabledFriends = IsEnabled(target.userID, "friend");
-                bool enabledClanMates = IsEnabled(target.userID, "clan");
-                bool enabledTeamMates = IsEnabled(target.userID, "team");
-                bool isFriends = config.TPT.UseFriends && enabledFriends && (Friends?.Call<bool>("AreFriends", player.UserIDString, target.UserIDString) ?? False);
-                bool isClanMates = config.TPT.UseClans && enabledClanMates && !string.IsNullOrEmpty(playerClan) && !string.IsNullOrEmpty(targetClan) && playerClan == targetClan;
-                bool isTeamMates = config.TPT.UseTeams && enabledTeamMates && player.currentTeam != 0 && target.currentTeam != 0 && player.currentTeam == target.currentTeam;
-
-                if (isClanMates || isTeamMates || isFriends)
-                {
-                    CommandTeleportRequest(p, command, new string[1] { target.UserIDString });
-                    CommandTeleportAccept(target.IPlayer, command, new string[0]);
-                }
-                else
-                {
-                    string message = _("NotValidTPT", player);
-                    if (config.TPT.UseFriends && enabledFriends) message += _("NotValidTPTFriend", player);
-                    if (config.TPT.UseTeams && enabledTeamMates) message += _("NotValidTPTTeam", player);
-                    if (config.TPT.UseClans && enabledClanMates) message += _("NotValidTPTClan", player);
-                    PrintMsg(player, message);
-                }
+                PrintMsgL(player, "TPTInfo");
             }
         }
 
-        bool IsEnabled(ulong targetId, string value)
+        public bool IsOnSameTeam(ulong playerId, ulong targetId)
+        {
+            if (!config.TPT.UseTeams || !IsEnabled(targetId.ToString(), "team"))
+            {
+                return false;
+            }
+
+            RelationshipManager.PlayerTeam team1;
+            if (!RelationshipManager.Instance.playerToTeam.TryGetValue(playerId, out team1))
+            {
+                return false;
+            }
+
+            RelationshipManager.PlayerTeam team2;
+            if (!RelationshipManager.Instance.playerToTeam.TryGetValue(targetId, out team2))
+            {
+                return false;
+            }
+
+            return team1.teamID == team2.teamID;
+        }
+
+        private bool AreFriends(string playerId, string targetId)
+        {
+            if (!config.TPT.UseFriends || !IsEnabled(targetId, "friend"))
+            {
+                return False;
+            }
+
+            return Friends?.Call<bool>("AreFriends", playerId, targetId) ?? False;
+        }
+
+        private bool IsInSameClan(string playerId, string targetId)
+        {
+            if (!config.TPT.UseClans || !IsEnabled(targetId, "clan"))
+            {
+                return false;
+            }
+
+            string targetClan = Clans?.Call<string>("GetClanOf", targetId);
+
+            if (targetClan == null)
+            {
+                return false;
+            }
+
+            string playerClan = Clans?.Call<string>("GetClanOf", playerId);
+
+            if (playerClan == null)
+            {
+                return false;
+            }
+
+            return targetClan == playerClan;
+        }
+
+        private void OnTeleportRequested(BasePlayer target, BasePlayer player)
+        {
+            if (IsInSameClan(target.UserIDString, player.UserIDString) || AreFriends(target.UserIDString, player.UserIDString) || IsOnSameTeam(target.userID, player.userID))
+            {
+                target.SendConsoleCommand("chat.say /tpa");
+            }
+        }
+
+        bool IsEnabled(string targetId, string value)
         {
             return !TPT.ContainsKey(targetId) || !TPT[targetId].Contains(value);
         }
@@ -2947,9 +3000,9 @@ namespace Oxide.Plugins
         void SetDisabled(BasePlayer target, string value)
         {
             List<string> list;
-            if (!TPT.TryGetValue(target.userID, out list))
+            if (!TPT.TryGetValue(target.UserIDString, out list))
             {
-                TPT[target.userID] = list = new List<string>();
+                TPT[target.UserIDString] = list = new List<string>();
             }
 
             if (list.Contains(value))
@@ -2972,7 +3025,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermTpR)) return;
+            if (!player || !IsAllowedMsg(player, PermTpR) || !player.IsConnected || player.IsSleeping()) return;
             if (!config.Settings.TPREnabled) { p.Reply("TPR is not enabled in the config."); return; }
             if (args.Length == 0)
             {
@@ -3139,7 +3192,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player) return;
+            if (!player || !player.IsConnected || player.IsSleeping()) return;
             if (!config.Settings.TPREnabled) { p.Reply("TPR is not enabled in the config."); return; }
             if (args.Length != 0)
             {
@@ -3271,7 +3324,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player || !IsAllowedMsg(player, PermWipeHomes)) return;
+            if (!player || !IsAllowedMsg(player, PermWipeHomes) || !player.IsConnected || player.IsSleeping()) return;
             Home.Clear();
             changedHome = True;
             PrintMsgL(player, "HomesListWiped");
@@ -3281,7 +3334,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player) return;
+            if (!player || !player.IsConnected || player.IsSleeping()) return;
             if (!config.Settings.HomesEnabled && !config.Settings.TPREnabled && !IsAllowedMsg(player)) return;
             if (args.Length == 1)
             {
@@ -3310,7 +3363,7 @@ namespace Oxide.Plugins
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             if (!config.Settings.HomesEnabled && !config.Settings.TPREnabled && !config.Settings.TownEnabled) { p.Reply($"{command} is not enabled in the config."); return; }
             var player = p.Object as BasePlayer;
-            if (!player) return;
+            if (!player || !player.IsConnected || player.IsSleeping()) return;
             if (args.Length == 1)
             {
                 var module = args[0].ToLower();
@@ -3444,7 +3497,7 @@ namespace Oxide.Plugins
         private void CommandTeleportCancel(IPlayer p, string command, string[] args)
         {
             var player = p.Object as BasePlayer;
-            if (!player) return;
+            if (!player || !player.IsConnected || player.IsSleeping()) return;
             if (args.Length != 0)
             {
                 PrintMsgL(player, "SyntaxCommandTPC");
@@ -3508,7 +3561,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (!player) return;
+            if (!player || !player.IsConnected || player.IsSleeping()) return;
 #if DEBUG
             Puts($"cmdChatTown: command={command}");
 #endif
@@ -4038,7 +4091,8 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
-            if (player != null && !IsAllowedMsg(player, PermTpConsole)) return;
+            if (player != null && (!IsAllowedMsg(player, PermTpConsole) || !player.IsConnected || player.IsSleeping())) return;
+            
             List<BasePlayer> players;
             switch (command)
             {
@@ -4196,7 +4250,7 @@ namespace Oxide.Plugins
         {
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p?.Object as BasePlayer;
-            if (!player || !player.IsAdmin) return;
+            if (!player || !player.IsAdmin || !player.IsConnected || player.IsSleeping()) return;
 
             foreach (var monument in monuments)
             {
@@ -4222,7 +4276,7 @@ namespace Oxide.Plugins
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
 
-            if (player != null && !IsAllowedMsg(player, PermImportHomes))
+            if (player != null && (!IsAllowedMsg(player, PermImportHomes) || !player.IsConnected || player.IsSleeping()))
             {
                 p.Reply(_("NotAllowed", player));
                 return;
@@ -4720,6 +4774,12 @@ namespace Oxide.Plugins
 #endif
                     return False;
                 }
+
+#if DEBUG
+                // player not authed
+                Puts("Player does not own cupboard and is not authorized");
+#endif
+                return False;
             }
 #if DEBUG
             Puts("No cupboard or building found - we cannot tell the status of this block");
@@ -4924,7 +4984,7 @@ namespace Oxide.Plugins
             RaycastHit hitinfo;
             var entities = new List<BuildingBlock>();
 
-            if (Physics.Raycast(position, Down, out hitinfo, 0.25f, blockLayer) && hitinfo.GetEntity().IsValid())
+            if (Physics.Raycast(position, Down, out hitinfo, 2.5f, blockLayer) && hitinfo.GetEntity().IsValid())
             {
                 var entity = hitinfo.GetEntity();
                 if (entity.PrefabName.Contains("foundation") || position.y < entity.WorldSpaceBounds().ToBounds().max.y)
@@ -5186,7 +5246,8 @@ namespace Oxide.Plugins
         private void PrintMsg(BasePlayer player, string msg)
         {
             if (player == null) return;
-            SendReply(player, $"{config.Settings.ChatName}{msg}");
+            //SendReply(player, $"{config.Settings.ChatName}{msg}");
+            Player.Message(player, $"{config.Settings.ChatName}{msg}", config.Settings.ChatID);
         }
         #endregion
 
