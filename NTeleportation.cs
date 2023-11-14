@@ -24,9 +24,20 @@ Added russian translations for HomeTooCloseToMon and TPHomeSafeZoneOnly (Credits
 Cleaned up monument display name
 */
 
+/*
+Toggle automatic teleport accept (WhiteDragon)
+
+Added permission to toggle automatic /tpa: "nteleportation.tpat"
+The default behavior is unchanged, with automatic /tpa enabled
+Added new command /tpat: toggles the permission "nteleportation.tpat"
+Added "en" messages: "AcceptToggleOff", "AcceptToggleOn", "SyntaxCommandTPAT"
+Updated "en" message: "TPHelptpr"
+Messages are added/updated in the "ru" dictionary, but need translations
+*/
+
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.5.3")]
+    [Info("NTeleportation", "nivex", "1.5.4")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -44,6 +55,7 @@ namespace Oxide.Plugins
         private const string NewLine = "\n";
         private const string ConfigDefaultPermVip = "nteleportation.vip";
         private const string PermHome = "nteleportation.home";
+        private const string PermTpAT = "nteleportation.tpat";
         private const string PermTpR = "nteleportation.tpr";
         private const string PermTpT = "nteleportation.tpt";
         private const string PermDeleteHome = "nteleportation.deletehome";
@@ -675,6 +687,8 @@ namespace Oxide.Plugins
                 {"AcceptOnRoof", "You can't accept a teleport while you're on a ceiling, get to ground level!"},
                 {"Accept", "{0} has accepted your teleport request! Teleporting in {1} seconds!"},
                 {"AcceptTarget", "You've accepted the teleport request of {0}!"},
+                {"AcceptToggleOff", "You've disabled automatic /tpa!"},
+                {"AcceptToggleOn", "You've enabled automatic /tpa!"},
                 {"NotAllowed", "You are not allowed to use this command!"},
                 {"Success", "You teleported to {0}!"},
                 {"SuccessTarget", "{0} teleported to you!"},
@@ -827,6 +841,7 @@ namespace Oxide.Plugins
                         "With these commands you can request to be teleported to a player or accept someone else's request:",
                         "/tpr \"player name\" - Sends a teleport request to the player.",
                         "/tpa - Accepts an incoming teleport request.",
+                        "/tpat - Toggle automatic /tpa on incoming teleport requests.",
                         "/tpc - Cancel teleport or request."
                     })
                 },
@@ -1088,6 +1103,14 @@ namespace Oxide.Plugins
                     })
                 },
                 {
+                    "SyntaxCommandTPAT", string.Join(NewLine, new[]
+                    {
+                        "A Syntax Error Occurred!",
+                        "You can only use the /tpat command as follows:",
+                        "/tpat - Toggles automatic /tpa on incoming teleport requests."
+                    })
+                },
+                {
                     "SyntaxCommandTPC", string.Join(NewLine, new[]
                     {
                         "A Syntax Error Occurred!",
@@ -1179,6 +1202,8 @@ namespace Oxide.Plugins
                 {"AcceptOnRoof", "Вы не можете принять запрос на телепортацию стоя на потолке, спуститесь на уровень фундамента!"},
                 {"Accept", "{0} принял ваш запрос! Телепортация через {1} секунд!"},
                 {"AcceptTarget", "Вы приняли запрос на телепортацию {0}!"},
+                {"AcceptToggleOff", "Вы отключили автоматическое /tpa!"},
+                {"AcceptToggleOn", "Вы включили автоматическое /tpa!"},
                 {"NotAllowed", "Вам не разрешено использовать эту команду!"},
                 {"Success", "Вы телепортированы к {0}!"},
                 {"SuccessTarget", "{0} телепортирован к вам!"},
@@ -1331,6 +1356,7 @@ namespace Oxide.Plugins
                         "Используя эти команды, вы можете отправить запрос на телепортацию к игроку, или принять чей-то запрос:",
                         "<color=yellow>/tpr \"имя игрока\"</color> - Отправляет запрос на телепортацию игроку с указанным именем.",
                         "<color=yellow>/tpa</color> - Принять входящий запрос на телепортацию.",
+                        "<color=yellow>/tpat</color> - Вкл./Выкл. автоматическое принятие входящих запросов на телепортацию к вам /tpa.",
                         "<color=yellow>/tpc</color> - Отменить запрос на телепортацию."
                     })
                 },
@@ -1592,6 +1618,14 @@ namespace Oxide.Plugins
                     })
                 },
                 {
+                    "SyntaxCommandTPAT", string.Join(NewLine, new[]
+                    {
+                        "Произошла синтаксическая ошибка!",
+                        "Использование команды <color=yellow>/tpat</color> возможно только следующим образом:",
+                        "<color=yellow>/tpat</color> - Вкл./Выкл. автоматическое принятие входящих запросов на телепортацию к вам /tpa."
+                    })
+                },
+                {
                     "SyntaxCommandTPC", string.Join(NewLine, new[]
                     {
                         "Произошла синтаксическая ошибка!",
@@ -1678,6 +1712,7 @@ namespace Oxide.Plugins
             permission.RegisterPermission(PermImportHomes, this);
             permission.RegisterPermission(PermRadiusHome, this);
             permission.RegisterPermission(PermTp, this);
+            permission.RegisterPermission(PermTpAT, this);
             permission.RegisterPermission(PermTpB, this);
             permission.RegisterPermission(PermTpR, this);
             permission.RegisterPermission(PermTpConsole, this);
@@ -1829,6 +1864,7 @@ namespace Oxide.Plugins
             AddCovalenceCommand("tpb", nameof(CommandTeleportBack));
             AddCovalenceCommand("tpt", nameof(CommandTeleportTeam));
             AddCovalenceCommand("tpa", nameof(CommandTeleportAccept));
+            AddCovalenceCommand("tpat", nameof(CommandTeleportAcceptToggle));
             AddCovalenceCommand("wipehomes", nameof(CommandWipeHomes));
             AddCovalenceCommand("tphelp", nameof(CommandTeleportHelp));
             AddCovalenceCommand("tpinfo", nameof(CommandTeleportInfo));
@@ -3216,6 +3252,11 @@ namespace Oxide.Plugins
                 return;
             }
 
+            if (permission.UserHasPermission(target.UserIDString, PermTpAT))
+            {
+                return;
+            }
+
             if (config.TPT.UseClans && IsEnabled(target.UserIDString, "clan") && IsInSameClan(player.UserIDString, target.UserIDString))
             {
                 target.SendConsoleCommand("chat.say /tpa");
@@ -3618,6 +3659,27 @@ namespace Oxide.Plugins
             PendingRequests.Remove(player.userID);
             PlayersRequests.Remove(player.userID);
             PlayersRequests.Remove(originPlayer.userID);
+        }
+
+        private void CommandTeleportAcceptToggle(IPlayer p, string command, string[] args)
+        {
+            var player = p.Object as BasePlayer;
+            if (!player || !player.IsConnected || player.IsSleeping()) return;
+            if (args.Length != 0)
+            {
+                PrintMsgL(player, "SyntaxCommandTPAT");
+                return;
+            }
+            if (p.HasPermission(PermTpAT))
+            {
+                p.RevokePermission(PermTpAT);
+                PrintMsgL(player, "AcceptToggleOn");
+            }
+            else
+            {
+                p.GrantPermission(PermTpAT);
+                PrintMsgL(player, "AcceptToggleOff");
+            }
         }
 
         private void CommandWipeHomes(IPlayer p, string command, string[] args)
