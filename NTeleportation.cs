@@ -19,20 +19,14 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
-Fix for teleport sending players under map?
-Fix for cargoship glitch?
-Fixed position checks for UsableOutOfBuildingBlocked
-Fixed position checks for UsableIntoBuildingBlocked
-Fixed IsOutside check for caves to allow teleporting while outside of a cave
-Added `Interrupt TP > Boats` (false)
-Added optional argument to teleporting to a player. e.g:
-    Multiple players found: ted, tedxbunny, xtedx
-    `/tpr ted #1` - teleport to the player using their index from the above list of player names
+Revert teleport changes
+Fix for building priv check
+Teleport pending message updated to include TPC command
 */
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.8")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.9")]
     class NTeleportation : RustPlugin
     {
         private bool newSave;
@@ -833,7 +827,7 @@ namespace Oxide.Plugins
                 {"MultiplePlayers", "Found multiple players: {0}"},
                 {"CantTeleportToSelf", "You can't teleport to yourself!"},
                 {"CantTeleportPlayerToSelf", "You can't teleport a player to himself!"},
-                {"TeleportPending", "You can't initiate another teleport while you have a teleport pending!"},
+                {"TeleportPendingTPC", "You can't initiate another teleport while you have a teleport pending! Use /tpc to cancel this."},
                 {"TeleportPendingTarget", "You can't request a teleport to someone who's about to teleport!"},
                 {"LocationExists", "A location with this name already exists at {0}!"},
                 {"LocationExistsNearby", "A location with the name {0} already exists near this position!"},
@@ -1264,7 +1258,7 @@ namespace Oxide.Plugins
                 {"MultiplePlayers", "Найдено несколько игроков, {0}"},
                 {"CantTeleportToSelf", "Ты не можешь телепортироваться к себе!"},
                 {"CantTeleportPlayerToSelf", "Вы не можете телепортировать игрока к себе!"},
-                {"TeleportPending", "Вы не можете инициировать другой телепорт, пока у вас есть телепорт в ожидании!"},
+                {"TeleportPendingTPC", "Вы не можете инициировать другой телепорт, пока у вас есть телепорт в ожидании!"},
                 {"TeleportPendingTarget", "Ты не можешь просить телепортации у того, кто собирается телепортироваться!"},
                 {"LocationExists", "Место с таким именем уже существует в {0}!"},
                 {"LocationExistsNearby", "Место с именем {0} уже существует рядом с этой позицией!"},
@@ -2700,7 +2694,7 @@ namespace Oxide.Plugins
             }
             if (TeleportTimers.ContainsKey(player.userID))
             {
-                PrintMsgL(player, "TeleportPending");
+                PrintMsgL(player, "TeleportPendingTPC");
                 return;
             }
             err = CanPlayerTeleport(player);
@@ -3052,7 +3046,7 @@ namespace Oxide.Plugins
                 int index;
                 foreach (var arg in args) 
                 {
-                    if (int.TryParse(arg.Replace("#", string.Empty), out index) && targets.Count < --index)
+                    if (int.TryParse(arg.Replace("#", string.Empty), out index) && targets.Count < --index && index > -1)
                     {
                         target = targets[index];
                         break;
@@ -3179,7 +3173,7 @@ namespace Oxide.Plugins
             }
             if (TeleportTimers.ContainsKey(player.userID))
             {
-                PrintMsgL(player, "TeleportPending");
+                PrintMsgL(player, "TeleportPendingTPC");
                 return;
             }
             if (TeleportTimers.ContainsKey(target.userID))
@@ -3869,7 +3863,7 @@ namespace Oxide.Plugins
             }
             if (TeleportTimers.ContainsKey(player.userID))
             {
-                PrintMsgL(player, "TeleportPending");
+                PrintMsgL(player, "TeleportPendingTPC");
                 return;
             }
             err = CanPlayerTeleport(player);
@@ -4382,8 +4376,8 @@ namespace Oxide.Plugins
         public void Teleport(BasePlayer player, BasePlayer target) => Teleport(player, target.transform.position);
 
         public void Teleport(BasePlayer player, float x, float y, float z) => Teleport(player, new Vector3(x, y, z));
-
-        public void Teleport(BasePlayer player, Vector3 newPosition, bool save = True)
+        
+        /*public void Teleport(BasePlayer player, Vector3 newPosition, bool save = True)
         {
             if (!player.IsValid() || Vector3.Distance(newPosition, Zero) < 5f) return;
 
@@ -4431,6 +4425,57 @@ namespace Oxide.Plugins
                 player.EnablePlayerCollider();
                 player.AddPlayerRigidbody();
                 player.EnableServerFall(False);
+            }
+
+            Interface.CallHook("OnPlayerTeleported", player, oldPosition, newPosition);
+        }*/
+
+        public void Teleport(BasePlayer player, Vector3 newPosition, bool save = True)
+        {
+            if (!player.IsValid() || Vector3.Distance(newPosition, Zero) < 5f) return;
+
+            if (save) SaveLocation(player);
+            if (!teleporting.ContainsKey(player.userID))
+                teleporting.Add(player.userID, newPosition);
+            else teleporting[player.userID] = newPosition;
+
+            var oldPosition = player.transform.position;
+
+            try
+            {
+                player.EnsureDismounted(); // 1.1.2 @Def
+
+                if (player.HasParent())
+                {
+                    player.SetParent(null, True, True);
+                }
+
+                if (player.IsConnected) // 1.1.2 @Def
+                {
+                    player.EndLooting();
+                    StartSleeping(player);
+                    player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, True);
+                }
+
+                player.RemoveFromTriggers(); // 1.1.2 @Def recommendation to use natural method for issue with triggers
+                player.EnableServerFall(True); // redundant, in OnEntityTakeDamage hook
+                player.Teleport(newPosition); // 1.1.6
+
+                if (player.IsConnected && !Network.Net.sv.visibility.IsInside(player.net.group, newPosition))
+                {
+                    player.ClientRPCPlayer(null, player, "StartLoading");
+                    player.SendEntityUpdate();
+                    if (!IsInvisible(player)) // fix for becoming networked briefly with vanish while teleporting
+                    {
+                        player.UpdateNetworkGroup(); // 1.1.1 building fix @ctv
+                        player.SendNetworkUpdateImmediate(False);
+                    }
+                }
+            }
+            finally
+            {
+                player.EnableServerFall(False);
+                player.ForceUpdateTriggers(); // 1.1.4 exploit fix for looting sleepers in safe zones
             }
 
             Interface.CallHook("OnPlayerTeleported", player, oldPosition, newPosition);
@@ -4651,7 +4696,7 @@ namespace Oxide.Plugins
             if (config.Settings.Interrupt.AboveWater)
                 if (AboveWater(player))
                     return "TPAboveWater";
-            if (!build && !player.CanBuild())
+            if (!build && !player.CanBuild(target, default(Quaternion), default(Bounds)))
                 return "TPBuildingBlocked";
             if (player.IsSwimming() && config.Settings.Interrupt.Swimming)
                 return "TPSwimming";
@@ -5362,7 +5407,7 @@ namespace Oxide.Plugins
                 int index;
                 foreach (var arg in args)
                 {
-                    if (int.TryParse(arg.Replace("#", string.Empty), out index) && targets.Count < --index)
+                    if (int.TryParse(arg.Replace("#", string.Empty), out index) && targets.Count < --index && index > -1)
                     {
                         return targets[index];
                     }
