@@ -1,4 +1,4 @@
-#define DEBUG
+//#define DEBUG
 //#define TPP
 using System;
 using System.Collections;
@@ -81,7 +81,7 @@ using System.Text.RegularExpressions;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.1.6")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.1.7")]
     class NTeleportation : RustPlugin
     {
         private static readonly Vector3 Up = up;
