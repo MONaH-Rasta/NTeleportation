@@ -18,9 +18,14 @@ using System.Reflection;
 using Oxide.Core.Libraries.Covalence;
 using Network;
 
+/*
+Unique ID is now 4 numbers between 1000 and 9999
+Fix for setting home position
+*/
+
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.4.8")]
+    [Info("NTeleportation", "nivex", "1.4.9")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -1614,12 +1619,12 @@ namespace Oxide.Plugins
 
         private void OnPlayerConnected(BasePlayer player)
         {
-            var uid = RandomString(4, 4).ToLower();
+            var uid = UnityEngine.Random.Range(1000, 9999).ToString();
             var names = BasePlayer.activePlayerList.Select(x => x.displayName);
 
             while (_ids.ContainsKey(uid) || names.Any(name => name.Contains(uid)))
             {
-                uid = RandomString(4, 4).ToLower();
+                uid = UnityEngine.Random.Range(1000, 9999).ToString();
             }
 
             _ids[uid] = player;
@@ -2538,7 +2543,7 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "HomeExists", location);
                 return;
             }
-            var positionCoordinates = player.eyes.position;
+            var positionCoordinates = player.transform.position;
             foreach (var loc in homeData.Locations)
             {
                 if ((positionCoordinates - loc.Value).magnitude < config.Home.LocationRadius)
