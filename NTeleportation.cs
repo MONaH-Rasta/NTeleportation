@@ -19,6 +19,10 @@ using static UnityEngine.Vector3;
 using System.Text.RegularExpressions;
 
 /*
+    1.1.2:
+    Fixed players being unable to move after teleport
+    Replaced specific trigger removal to remove all triggers instead
+
     1.1.1: 
     Fixed being dragged under map after teleport while standing on a garbage pile plank!! Ty @Ryrzy for video to reproduce
     Fixed buildings not loading immediately after teleport. Credits @ctv
@@ -50,7 +54,7 @@ using System.Text.RegularExpressions;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.1.1")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.1.2")]
     class NTeleportation : RustPlugin
     {
         private static readonly Vector3 Up = up;
@@ -4014,18 +4018,20 @@ namespace Oxide.Plugins
 
             try // IPlayer.Teleport
             {
-                if (player.IsConnected)
-                {
-                    player.EndLooting();
-                    StartSleeping(player);
-                }
+                player.EnsureDismounted();
 
                 if (player.HasParent())
                 {
                     player.SetParent(null, true, true);
                 }
 
-                player.EnsureDismounted();
+                if (player.IsConnected)
+                {
+                    player.EndLooting();
+                    StartSleeping(player);
+                }
+
+                player.RemoveFromTriggers();
                 player.EnableServerFall(true); // redundant, in OnEntityTakeDamage hook
                 player.MovePosition(position);
 
@@ -4034,24 +4040,9 @@ namespace Oxide.Plugins
                     player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, true);
                     player.ClientRPCPlayer(null, player, "StartLoading");
                     player.ClientRPCPlayer(null, player, "ForcePositionTo", position);
-                    player.UpdateNetworkGroup(); // 1.1.1 fix @ctv
-                    player.SendEntityUpdate(); // 1.1.1 fix @ctv
-                    player.SendNetworkUpdateImmediate(false); // 1.1.1 fix @ctv
-                }
-
-                if (player.triggers != null) // elegant solution to prevent players from being dragged under the map after teleport, fix 1.1.1. reproduce: https://www.youtube.com/watch?v=F9WL_UYlY84, source: Ryrzy
-                {
-                    foreach (var triggerBase in player.triggers.ToArray())
-                    {
-                        if ((bool)triggerBase && triggerBase.interestLayers.value == 68289024) // remove layer that causes the bug
-                        {
-                            triggerBase.RemoveEntity(player);
-                        }
-                    }
-                    if (player.triggers != null && player.triggers.Count == 0)
-                    {
-                        Pool.FreeList(ref player.triggers);
-                    }
+                    player.UpdateNetworkGroup(); // 1.1.1 building fix @ctv
+                    player.SendEntityUpdate();
+                    player.SendNetworkUpdateImmediate(false);
                 }
             }
             finally
@@ -4062,16 +4053,16 @@ namespace Oxide.Plugins
 
         public void StartSleeping(BasePlayer player)
         {
-            if (player.IsSleeping()) return;
-
-            player.SetPlayerFlag(BasePlayer.PlayerFlags.Sleeping, true);
-
-            if (!BasePlayer.sleepingPlayerList.Contains(player))
+            if (!player.IsSleeping())
+            {
+                Interface.CallHook("OnPlayerSleep", this);
+                player.SetPlayerFlag(BasePlayer.PlayerFlags.Sleeping, true);
+                player.sleepStartTime = Time.time;
                 BasePlayer.sleepingPlayerList.Add(player);
-
-            player.sleepStartTime = Time.time;
-            player.CancelInvoke("InventoryUpdate");
-            player.CancelInvoke("TeamUpdate");
+                BasePlayer.bots.Remove(player);
+                player.CancelInvoke("InventoryUpdate");
+                player.CancelInvoke("TeamUpdate");
+            }
         }
         #endregion
 
