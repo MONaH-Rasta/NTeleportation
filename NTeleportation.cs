@@ -19,9 +19,18 @@ using static UnityEngine.Vector3;
 using System.Text.RegularExpressions;
 
 /*
+    1.1.5:
+    Removed downgrade support for versions 1.0.89 and below
+    Added config setting TPT > UseClans (default: true) - If set false, users cannot teleport to clan mates even with `nteleportation.tpt` permission
+    Added config setting TPT > UseFriends (default: true) - If set false, users cannot teleport to friends even with `nteleportation.tpt` permission
+    Added config setting TPT > UseTeams (default: true) - If set false, users cannot teleport to team mates even with `nteleportation.tpt` permission
+    Added command `/tpt clan|team|friend` to toggle allowing/blocking of players trying to instantly teleport to them when using /tpt name
+    Added new language messages for TPT (en only atm)
+    Fix for desync of players after teleport when close to teleport point or offline. Credits @Death
+
     1.1.4:
     Fixed exploit where players could loot sleepers in safe zones after using teleport
-    Fix for TPT command allowing teleports to all
+    Fix for TPT command allowing teleports to all, admins are still allowed
 
     1.1.3:
     Rewrote and fixed /tpt command
@@ -62,7 +71,7 @@ using System.Text.RegularExpressions;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.1.4")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.1.5")]
     class NTeleportation : RustPlugin
     {
         private static readonly Vector3 Up = up;
@@ -96,18 +105,21 @@ namespace Oxide.Plugins
         private DynamicConfigFile dataAdmin;
         private DynamicConfigFile dataHome;
         private DynamicConfigFile dataTPR;
+        private DynamicConfigFile dataTPT;
         private DynamicConfigFile dataTown;
         private DynamicConfigFile dataOutpost;
         private DynamicConfigFile dataBandit;
         private Dictionary<ulong, AdminData> Admin;
         private Dictionary<ulong, HomeData> Home;
         private Dictionary<ulong, TeleportData> TPR;
+        private Dictionary<ulong, List<string>> TPT;
         private Dictionary<ulong, TeleportData> Town;
         private Dictionary<ulong, TeleportData> Outpost;
         private Dictionary<ulong, TeleportData> Bandit;
         private bool changedAdmin;
         private bool changedHome;
         private bool changedTPR;
+        private bool changedTPT;
         private bool changedTown;
         private bool changedOutpost;
         private bool changedBandit;
@@ -138,6 +150,7 @@ namespace Oxide.Plugins
             public GameVersionData GameVersion { get; set; }
             public AdminSettingsData Admin { get; set; }
             public HomesSettingsData Home { get; set; }
+            public TPTData TPT { get; set; }
             public TPRData TPR { get; set; }
             public TownData Town { get; set; }
             public TownData Outpost { get; set; }
@@ -160,7 +173,6 @@ namespace Oxide.Plugins
             public bool InterruptTPOnSafe { get; set; }
             public bool InterruptTPOnBalloon { get; set; }
             public bool InterruptTPOnCargo { get; set; }
-            public bool InterruptTPOnRig { get; set; }
             public bool InterruptTPOnExcavator { get; set; }
             public bool InterruptTPOnLift { get; set; }
             public bool InterruptTPOnMonument { get; set; }
@@ -229,6 +241,13 @@ namespace Oxide.Plugins
             public bool CheckValidOnList { get; set; }
             public int Pay { get; set; }
             public int Bypass { get; set; }
+        }
+
+        class TPTData
+        {
+            public bool UseFriends { get; set; } = true;
+            public bool UseClans { get; set; } = true;
+            public bool UseTeams { get; set; } = true;
         }
 
         class TPRData
@@ -325,7 +344,6 @@ namespace Oxide.Plugins
                     InterruptTPOnSafe = true,
                     InterruptTPOnBalloon = true,
                     InterruptTPOnCargo = true,
-                    InterruptTPOnRig = false,
                     InterruptTPOnExcavator = false,
                     InterruptTPOnLift = true,
                     InterruptTPOnMonument = false,
@@ -394,6 +412,12 @@ namespace Oxide.Plugins
                     BlockTPAOnCeiling = true,
                     OffsetTPRTarget = true,
                     CupOwnerAllowOnBuildingBlocked = true
+                },
+                TPT = new TPTData
+                {
+                    UseClans = true,
+                    UseFriends = true,
+                    UseTeams = true,
                 },
                 Town = new TownData
                 {
@@ -666,7 +690,16 @@ namespace Oxide.Plugins
                         "Daily amount of teleports: {1}"
                     })
                 },
-                {"NotValidTPT", "Not valid, player is not a friend, on your team, or in your clan!"},
+                {"TPT_True", "enabled"},
+                {"TPT_False", "disabled"},
+                {"TPT_clan", "TPT clan has been {0}."},
+                {"TPT_friend", "TPT friend has been {0}."},
+                {"TPT_team", "TPT team has been {0}."},
+                {"NotValidTPT", "Not valid, player is not"},
+                {"NotValidTPTFriend", " a friend!"},
+                {"NotValidTPTTeam", " on your team!"},
+                {"NotValidTPTClan", " in your clan!"},
+                {"TPTInfo", "`/tpt clan|team|friend` - toggle allowing/blocking of players trying to TPT to you via one of these options."},
                 {"PlayerNotFound", "The specified player couldn't be found please try again!"},
                 {"MultiplePlayers", "Found multiple players: {0}"},
                 {"CantTeleportToSelf", "You can't teleport to yourself!"},
@@ -1327,7 +1360,7 @@ namespace Oxide.Plugins
                     configData.Outpost.VIPCountdowns = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
                     configData.Bandit.VIPCountdowns = new Dictionary<string, int> { { ConfigDefaultPermVip, 5 } };
                 }
-                if(configData.Version <= new VersionNumber(1, 0, 4))
+                /*if(configData.Version <= new VersionNumber(1, 0, 4))
                 {
                     configData.Home.AllowAboveFoundation = true;
                 }
@@ -1375,10 +1408,10 @@ namespace Oxide.Plugins
                 {
                     configData.Settings.StrictFoundationCheck = false;
                 }
-                if(configData.Version < new VersionNumber(1, 0, 80))
+                if(configData.Version < new VersionNumber(1, 0, 80)) // if 1.1.4 is less than 1.0.80 then set false
                 {
                     configData.Settings.InterruptTPOnHostile = false;
-                }
+                }*/
                 if(configData.Settings.MaximumTemp < 1)
                 {
                     configData.Settings.MaximumTemp = 40f;
@@ -1420,7 +1453,8 @@ namespace Oxide.Plugins
             Admin = dataAdmin.ReadObject<Dictionary<ulong, AdminData>>();
             dataHome = GetFile(nameof(NTeleportation) + "Home");
             Home = dataHome.ReadObject<Dictionary<ulong, HomeData>>();
-
+            dataTPT = GetFile(nameof(NTeleportation) + "TPT");
+            TPT = dataTPT.ReadObject<Dictionary<ulong, List<string>>>();
             dataTPR = GetFile(nameof(NTeleportation) + "TPR");
             TPR = dataTPR.ReadObject<Dictionary<ulong, TeleportData>>();
             dataTown = GetFile(nameof(NTeleportation) + "Town");
@@ -1551,6 +1585,7 @@ namespace Oxide.Plugins
             SaveTeleportsAdmin();
             SaveTeleportsHome();
             SaveTeleportsTPR();
+            SaveTeleportsTPT();
             SaveTeleportsTown();
             SaveTeleportsOutpost();
             SaveTeleportsBandit();
@@ -1707,6 +1742,13 @@ namespace Oxide.Plugins
             if (TPR == null || !changedTPR) return;
             dataTPR.WriteObject(TPR);
             changedTPR = false;
+        }
+
+        private void SaveTeleportsTPT()
+        {
+            if (TPT == null || !changedTPT) return;
+            dataTPT.WriteObject(TPT);
+            changedTPT = false;
         }
 
         private void SaveTeleportsTown()
@@ -2750,16 +2792,37 @@ namespace Oxide.Plugins
         [ChatCommand("tpt")]
         private void cmdChatTeleportTeam(BasePlayer player, string command, string[] args)
         {
+            if (configData.TPT == null)
+            {
+                configData.TPT = new TPTData();
+                Config.WriteObject(configData, true);
+            }
+
+            if (!configData.TPT.UseClans && !configData.TPT.UseFriends && !configData.TPT.UseTeams)
+                return;
+
             if (!IsAllowedMsg(player, PermTpT))
                 return;
 
             if (args.Length < 1)
             {
                 PrintMsgL(player, "SyntaxCommandTPT");
+                PrintMsgL(player, "TPTInfo");
                 return;
             }
             else
             {
+                switch (args[0].ToLower())
+                {
+                    case "friend":
+                    case "clan":
+                    case "team":
+                        {
+                            SetDisabled(player, args[0].ToLower());
+                            return;
+                        }
+                }
+
                 var target = FindPlayersSingle(args[0], player);
                 if (target == null)
                 {
@@ -2773,17 +2836,56 @@ namespace Oxide.Plugins
 
                 string playerClan = Clans?.Call<string>("GetClanOf", player.UserIDString);
                 string targetClan = Clans?.Call<string>("GetClanOf", target.UserIDString);
-                bool isFriends = Friends?.Call<bool>("AreFriends", player.UserIDString, target.UserIDString) ?? false;
-                bool isClanMates = !string.IsNullOrEmpty(playerClan) && !string.IsNullOrEmpty(targetClan) && playerClan == targetClan;
-                bool isTeamMates = player.currentTeam != 0 && target.currentTeam != 0 && player.currentTeam == target.currentTeam;
+                bool enabledFriends = IsEnabled(target.userID, "friend");
+                bool enabledClanMates = IsEnabled(target.userID, "clan");
+                bool enabledTeamMates = IsEnabled(target.userID, "team");
+                bool isFriends = configData.TPT.UseFriends && enabledFriends && (Friends?.Call<bool>("AreFriends", player.UserIDString, target.UserIDString) ?? false);
+                bool isClanMates = configData.TPT.UseClans && enabledClanMates && !string.IsNullOrEmpty(playerClan) && !string.IsNullOrEmpty(targetClan) && playerClan == targetClan;
+                bool isTeamMates = configData.TPT.UseTeams && enabledTeamMates && player.currentTeam != 0 && target.currentTeam != 0 && player.currentTeam == target.currentTeam;
 
-                if (isClanMates || isTeamMates || isFriends || player.IsAdmin)
+                if (isClanMates || isTeamMates || isFriends)
                 {
                     cmdChatTeleportRequest(player, command, new string[1] { target.UserIDString });
                     cmdChatTeleportAccept(target, command, new string[0]);
                 }
-                else PrintMsgL(player, "NotValidTPT");
+                else
+                {
+                    string message = _("NotValidTPT", player);
+                    if (configData.TPT.UseFriends && enabledFriends) message += _("NotValidTPTFriend", player);
+                    if (configData.TPT.UseTeams && enabledTeamMates) message += _("NotValidTPTTeam", player);
+                    if (configData.TPT.UseClans && enabledClanMates) message += _("NotValidTPTClan", player);
+                    PrintMsg(player, message);
+                }
             }
+        }
+
+        bool IsEnabled(ulong targetId, string value)
+        {
+            return !TPT.ContainsKey(targetId) || !TPT[targetId].Contains(value);
+        }
+
+        void SetDisabled(BasePlayer target, string value)
+        {
+            List<string> list;
+            if (!TPT.TryGetValue(target.userID, out list))
+            {
+                TPT[target.userID] = list = new List<string>();
+            }
+
+            if (list.Contains(value))
+            {
+                list.Remove(value);
+            }
+            else
+            {
+                list.Add(value);
+            }
+
+            string status = lang.GetMessage($"TPT_{!list.Contains(value)}", this, target.UserIDString);
+            string message = string.Format(lang.GetMessage($"TPT_{value}", this, target.UserIDString), status);
+
+            PrintMsg(target, message);
+            changedTPT = true;
         }
 
         [ChatCommand("tpr")]
@@ -4028,15 +4130,15 @@ namespace Oxide.Plugins
                     StartSleeping(player);
                 }
 
-                player.RemoveFromTriggers(); // 1.1.2 @Def
+                player.RemoveFromTriggers(); // 1.1.2 @Def recommendation to use natural method for issue with triggers
                 player.EnableServerFall(true); // redundant, in OnEntityTakeDamage hook
                 player.MovePosition(position);
+                player.ClientRPCPlayer(null, player, "ForcePositionTo", position); // 1.1.5 moved by Death
 
                 if (player.IsConnected && !Network.Net.sv.visibility.IsInside(player.net.group, position))
                 {
                     player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, true);
                     player.ClientRPCPlayer(null, player, "StartLoading");
-                    player.ClientRPCPlayer(null, player, "ForcePositionTo", position);
                     player.UpdateNetworkGroup(); // 1.1.1 building fix @ctv
                     player.SendEntityUpdate();
                     player.SendNetworkUpdateImmediate(false);
@@ -4260,7 +4362,7 @@ namespace Oxide.Plugins
                     return _("TooCloseToMon", player, monname);
                 }
             }
-            if (configData.Settings.InterruptTPOnOilrig == true)
+            if (configData.Settings.InterruptTPOnOilrig)
             {
                 if (monname != null && monname.Contains("Oilrig"))
                 {
@@ -4328,7 +4430,7 @@ namespace Oxide.Plugins
             {
                 return "TPTooHot";
             }
-
+            
             if(configData.Settings.InterruptAboveWater)
                 if(AboveWater(player))
                     return "TPAboveWater";
@@ -4337,7 +4439,7 @@ namespace Oxide.Plugins
             if(player.IsSwimming() && configData.Settings.InterruptTPOnSwimming == true)
                 return "TPSwimming";
             // This will have to do until we have a proper parent name for this
-            if(monname != null && monname.Contains("Oilrig") && configData.Settings.InterruptTPOnRig == true)
+            if(monname != null && monname.Contains("Oilrig") && configData.Settings.InterruptTPOnOilrig == true)
                 return "TPOilRig";
             if(monname != null && monname.Contains("Excavator") && configData.Settings.InterruptTPOnExcavator == true)
                 return "TPExcavator";
@@ -4956,7 +5058,7 @@ namespace Oxide.Plugins
         private void PrintMsgL(BasePlayer player, string msgId, params object[] args)
         {
             if(player == null) return;
-            PrintMsg(player, _(msgId, player, args));
+            PrintMsg(player, _(msgId, player, args));            
         }
 
         private void PrintMsg(BasePlayer player, string msg)
