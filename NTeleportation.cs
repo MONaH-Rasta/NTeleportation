@@ -19,6 +19,10 @@ using static UnityEngine.Vector3;
 using System.Text.RegularExpressions;
 
 /*
+    1.1.3:
+    Rewrote and fixed /tpt command
+    Allowed admins to teleport to self for testing purposes
+
     1.1.2:
     Fixed players being unable to move after teleport
     Replaced specific trigger removal to remove all triggers instead
@@ -54,7 +58,7 @@ using System.Text.RegularExpressions;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.1.2")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.1.3")]
     class NTeleportation : RustPlugin
     {
         private static readonly Vector3 Up = up;
@@ -1852,55 +1856,6 @@ namespace Oxide.Plugins
                 Config.WriteObject(configData, true);
             }
         }
-        [ChatCommand("tpt")]
-        private void cmdChatTeleportTeam(BasePlayer player, string command, string[] args)
-        {
-            if (!IsAllowedMsg(player, PermTpT))
-                return;
-
-            if (args.Length < 1 || string.IsNullOrEmpty(args[0]))
-            {
-                PrintMsgL(player, "SyntaxCommandTPT");
-                return;
-            }
-            else
-            {
-                BasePlayer target = null;
-                string PlayerClan = null;
-                string TargetClan = null;
-
-                target = FindPlayersSingle(args[0], player);
-                if (target == null)
-                    return;
-                else if (target == player)
-                {
-                    PrintMsgL(player, "CantTeleportToSelf");
-                    return;
-                }
-
-                PlayerClan = Clans?.Call<string>("GetClanOf", player);
-                TargetClan = Clans?.Call<string>("GetClanOf", target);
-
-                bool isFriends = Friends?.Call<bool>("AreFriends", player.userID, target.userID) ?? false;
-                bool notClanMates = string.IsNullOrEmpty(PlayerClan) || string.IsNullOrEmpty(TargetClan) || PlayerClan != TargetClan;
-                bool notTeamMates = player.currentTeam == 0 || target.currentTeam == 0 || player.currentTeam != target.currentTeam;
-
-                if (notClanMates && notTeamMates && !isFriends)
-                {
-                    PrintMsgL(player, "NotValidTPT");
-                    return;
-                }
-                else
-                {
-                    // call "tpr"
-                    cmdChatTeleportRequest(player, "notpa", args);
-
-                    // call "tpa"
-                    string[] x = null;
-                    cmdChatTeleportAccept(target, "notpa", x);
-                }
-            }
-        }
 
 #if TPP
         Coroutine coroutine;
@@ -2788,12 +2743,52 @@ namespace Oxide.Plugins
             }
         }
 
+        [ChatCommand("tpt")]
+        private void cmdChatTeleportTeam(BasePlayer player, string command, string[] args)
+        {
+            if (!IsAllowedMsg(player, PermTpT))
+                return;
+
+            if (args.Length < 1)
+            {
+                PrintMsgL(player, "SyntaxCommandTPT");
+                return;
+            }
+            else
+            {
+                var target = FindPlayersSingle(args[0], player);
+                if (target == null)
+                {
+                    return;
+                }
+                else if (target == player && !player.IsAdmin)
+                {
+                    PrintMsgL(player, "CantTeleportToSelf");
+                    return;
+                }
+
+                string PlayerClan = Clans?.Call<string>("GetClanOf", player);
+                string TargetClan = Clans?.Call<string>("GetClanOf", target);
+                bool isFriends = player.IsAdmin || (Friends?.Call<bool>("AreFriends", player.userID, target.userID) ?? false);
+                bool notClanMates = (string.IsNullOrEmpty(PlayerClan) || string.IsNullOrEmpty(TargetClan) || PlayerClan != TargetClan);
+                bool notTeamMates = (player.currentTeam == 0 || target.currentTeam == 0 || player.currentTeam != target.currentTeam);
+
+                if (notClanMates && notTeamMates && !isFriends)
+                {
+                    PrintMsgL(player, "NotValidTPT");
+                    return;
+                }
+
+                cmdChatTeleportRequest(player, command, new string[1] { target.UserIDString });
+                cmdChatTeleportAccept(target, command, new string[0]);
+            }
+        }
+
         [ChatCommand("tpr")]
         private void cmdChatTeleportRequest(BasePlayer player, string command, string[] args)
         {
             if (!IsAllowedMsg(player, PermTpR)) return;
             if (!configData.Settings.TPREnabled) return;
-            //if (args.Length != 1)
             if (args.Length == 0)
             {
                 PrintMsgL(player, "SyntaxCommandTPR");
@@ -2811,7 +2806,7 @@ namespace Oxide.Plugins
                 return;
             }
             var target = targets[0];
-            if (target == player)
+            if (target == player && !player.IsAdmin)
             {
 #if DEBUG
                 Puts("Debug mode - allowing self teleport.");
@@ -2847,7 +2842,7 @@ namespace Oxide.Plugins
                 tprData.Date = currentDate;
             }
 
-            var cooldown = GetLower(player, configData.TPR.VIPCooldowns, configData.TPR.Cooldown);
+            var cooldown = player.IsAdmin ? 0 : GetLower(player, configData.TPR.VIPCooldowns, configData.TPR.Cooldown);
             if (cooldown > 0 && timestamp - tprData.Timestamp < cooldown)
             {
                 var cmdSent = "";
@@ -2959,13 +2954,13 @@ namespace Oxide.Plugins
         private void cmdChatTeleportAccept(BasePlayer player, string command, string[] args)
         {
             if (!configData.Settings.TPREnabled) return;
-            if (args.Length != 0 && command != "notpa")
+            if (args.Length != 0)
             {
                 PrintMsgL(player, "SyntaxCommandTPA");
                 return;
             }
             Timer reqTimer;
-            if (!PendingRequests.TryGetValue(player.userID, out reqTimer) && command != "notpa")
+            if (!PendingRequests.TryGetValue(player.userID, out reqTimer))
             {
                 PrintMsgL(player, "NoPendingRequest");
                 return;
@@ -4018,20 +4013,20 @@ namespace Oxide.Plugins
 
             try // IPlayer.Teleport
             {
-                player.EnsureDismounted();
+                player.EnsureDismounted(); // 1.1.2 @Def
 
                 if (player.HasParent())
                 {
                     player.SetParent(null, true, true);
                 }
 
-                if (player.IsConnected)
+                if (player.IsConnected) // 1.1.2 @Def
                 {
                     player.EndLooting();
                     StartSleeping(player);
                 }
 
-                player.RemoveFromTriggers();
+                player.RemoveFromTriggers(); // 1.1.2 @Def
                 player.EnableServerFall(true); // redundant, in OnEntityTakeDamage hook
                 player.MovePosition(position);
 
@@ -4788,7 +4783,7 @@ namespace Oxide.Plugins
 
         private bool CheckBoundaries(float x, float y, float z)
         {
-            return x <= boundary && x >= -boundary && y < 2000 && y >= -100 && z <= boundary && z >= -boundary;
+            return x <= boundary && x >= -boundary && y <= 2000 && y >= -100 && z <= boundary && z >= -boundary;
         }
 
         private Vector3 GetGround(Vector3 sourcePos)
