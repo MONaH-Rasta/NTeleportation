@@ -19,17 +19,13 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
-Fix for players setting homes inside of foundations
-Fix for error message in /TPR when target is blocked from teleporting
-- Note: Both targets must be able to teleport in order for either to use /TPR or /TPA
-Added `Show Time As Seconds Instead` (false)
-Adjusted HomeNoFoundation to work a bit better
-- Note: Strict Foundation Check still requires that you be in the center of the foundation
+Added `Home > Usable From Safe Zone Only` (false)
+Blocked sethome at monuments
 */
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.5.1")]
+    [Info("NTeleportation", "nivex", "1.5.2")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -340,6 +336,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Usable Into Building Blocked")]
             public bool UsableIntoBuildingBlocked { get; set; } = False;
+
+            [JsonProperty(PropertyName = "Usable From Safe Zone Only")]
+            public bool UsableFromSafeZoneOnly { get; set; } = False;
 
             [JsonProperty(PropertyName = "Allow Cupboard Owner When Building Blocked")]
             public bool CupOwnerAllowOnBuildingBlocked { get; set; } = True;
@@ -722,6 +721,7 @@ namespace Oxide.Plugins
                 {"TPNoEscapeBlocked", "You can't teleport while blocked!"},
                 {"TPCrafting", "You can't teleport while crafting!"},
                 {"TPBlockedItem", "You can't teleport while carrying: {0}!"},
+                {"TPHomeSafeZoneOnly", "You can only teleport home from within a safe zone!" },
                 {"TooCloseToMon", "You can't teleport so close to the {0}!"},
                 {"TooCloseToCave", "You can't teleport so close to a cave!"},
                 {"HomeTooCloseToCave", "You can't set home so close to a cave!"},
@@ -2938,7 +2938,11 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "TPBlockedItem", err);
                 return;
             }
-
+            if (config.Home.UsableFromSafeZoneOnly && !player.InSafeZone())
+            {
+                PrintMsgL(player, "TPHomeSafeZoneOnly");
+                return;
+            }
             var countdown = GetLower(player, config.Home.VIPCountdowns, config.Home.Countdown);
             TeleportTimers[player.userID] = new TeleportTimer
             {
@@ -5136,7 +5140,7 @@ namespace Oxide.Plugins
                         return "TPExcavator";
                     }
 
-                    if (config.Settings.Interrupt.Monument)
+                    if (config.Settings.Interrupt.Monument || mode == "home")
                     {
                         return _("TooCloseToMon", player, monname);
                     }
