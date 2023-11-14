@@ -27,7 +27,8 @@ Teleport pending message updated to include TPC command
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.4.1")]
+    [Info("NTeleportation", "nivex", "1.4.2")]
+    [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
         private bool newSave;
@@ -4408,9 +4409,9 @@ namespace Oxide.Plugins
                 if (player.IsConnected) // 1.1.2 @Def
                 {
                     player.EndLooting();
-                    player.UpdatePlayerCollider(false); //Added 1.4.1 Teleport bug fix (Facepunch default bug) @Bazz3l, Lucky Luciano, Khan.
+                    player.DisablePlayerCollider(); //Added 1.4.1 Teleport bug fix (Facepunch default bug) @Bazz3l, Lucky Luciano, Khan.
                     StartSleeping(player);
-                    player.UpdatePlayerCollider(true); //Added 1.4.1 Teleport bug fix (Facepunch default bug) @Bazz3l, Lucky Luciano, Khan.
+                    player.EnablePlayerCollider(); //Added 1.4.1 Teleport bug fix (Facepunch default bug) @Bazz3l, Lucky Luciano, Khan.
                     player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, True);
                 }
 
