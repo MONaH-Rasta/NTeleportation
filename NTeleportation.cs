@@ -19,6 +19,9 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
+    1.3.2:
+    Removed Offset TPR Target due to an exploit
+
     1.3.1:
     Rewrote Offset TPR Target
         I believe it was possible this was causing players to teleport under the map in rare cases
@@ -181,7 +184,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.1")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.2")]
     class NTeleportation : RustPlugin
     {
         private string banditPrefab;
@@ -530,9 +533,6 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Request Duration")]
             public int RequestDuration { get; set; } = 30;
-
-            [JsonProperty(PropertyName = "Offset TPR Target")]
-            public bool OffsetTPRTarget { get; set; } = True;
 
             [JsonProperty(PropertyName = "Block TPA On Ceiling")]
             public bool BlockTPAOnCeiling { get; set; } = True;
@@ -3063,7 +3063,8 @@ namespace Oxide.Plugins
                 {
                     return;
                 }
-                else if (target == player)
+
+                if (target == player)
                 {
                     PrintMsgL(player, "CantTeleportToSelf");
                     return;
@@ -3404,8 +3405,7 @@ namespace Oxide.Plugins
                             }
                         }
                     }
-                    var position = CheckPosition(player.transform);
-                    Teleport(originPlayer, position, config.TPR.AllowTPB);
+                    Teleport(originPlayer, player.transform.position, config.TPR.AllowTPB);
                     var tprData = TPR[originPlayer.userID];
                     tprData.Amount++;
                     tprData.Timestamp = timestamp;
@@ -3421,43 +3421,6 @@ namespace Oxide.Plugins
             PendingRequests.Remove(player.userID);
             PlayersRequests.Remove(player.userID);
             PlayersRequests.Remove(originPlayer.userID);
-        }
-
-        Vector3 CheckPosition(Transform transform)
-        {
-            var a = transform.position;
-
-            if (!config.TPR.OffsetTPRTarget)
-            {
-                return a;
-            }
-
-            foreach (var dir in new List<Vector3> { transform.forward, /*transform.forward * a.z, transform.right * a.x,*/ transform.right })
-            {
-                var b = a + dir + new Vector3(0f, 0.2f, 0f);
-
-                if (IsValidPosition(b))
-                {
-                    return b;
-                }
-            }
-
-            return a;
-        }
-
-        bool IsValidPosition(Vector3 b)
-        {
-            int hits = Physics.OverlapSphereNonAlloc(b, 0.15f, Vis.colBuffer, buildingLayer, QueryTriggerInteraction.Ignore);
-            int num1 = hits;
-
-            for (int i = 0; i < hits; i++)
-            {
-                if (Vis.colBuffer[i].name.Contains("floor/floor.")) num1--;
-                if (Vis.colBuffer[i].name.Contains("foundation/foundation.")) num1--;
-                Vis.colBuffer[i] = null;
-            }
-
-            return num1 == 0;
         }
 
         private void CommandWipeHomes(IPlayer p, string command, string[] args)
