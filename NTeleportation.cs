@@ -27,7 +27,7 @@ Teleport pending message updated to include TPC command
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.4.0")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.4.1")]
     class NTeleportation : RustPlugin
     {
         private bool newSave;
@@ -4384,59 +4384,6 @@ namespace Oxide.Plugins
         public void Teleport(BasePlayer player, BasePlayer target) => Teleport(player, target.transform.position);
 
         public void Teleport(BasePlayer player, float x, float y, float z) => Teleport(player, new Vector3(x, y, z));
-        
-        /*public void Teleport(BasePlayer player, Vector3 newPosition, bool save = True)
-        {
-            if (!player.IsValid() || Vector3.Distance(newPosition, Zero) < 5f) return;
-
-            if (save) SaveLocation(player);
-            if (!teleporting.ContainsKey(player.userID))
-                teleporting.Add(player.userID, newPosition);
-            else teleporting[player.userID] = newPosition;
-
-            var oldPosition = player.transform.position;
-
-            try
-            {
-                player.EnsureDismounted(); // 1.1.2 @Def
-                player.SetParent(null, True, True);
-
-                if (player.IsConnected) // 1.1.2 @Def
-                {
-                    player.EndLooting();
-                    StartSleeping(player);
-                    player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, True);
-                }
-
-                player.EnablePlayerCollider();
-                player.RemovePlayerRigidbody();
-                player.EnableServerFall(True); // redundant, in OnEntityTakeDamage hook
-                player.Teleport(newPosition); // 1.1.6
-
-                if (player.IsConnected && !Net.sv.visibility.IsInside(player.net.group, newPosition))
-                {
-                    player.ClientRPCPlayer(null, player, "StartLoading");
-                    
-                    if (!IsInvisible(player)) // fix for becoming networked briefly with vanish while teleporting
-                    {
-                        player.UpdateNetworkGroup(); // 1.1.1 building fix @ctv
-                        player.SendNetworkUpdateImmediate(False);
-                        player.ClearEntityQueue(null);
-                        player.SendFullSnapshot();
-                    }
-                    else player.ClearEntityQueue(null);
-                }
-            }
-            finally
-            {
-                player.ForceUpdateTriggers(); // 1.1.4 exploit fix for looting sleepers in safe zones
-                player.EnablePlayerCollider();
-                player.AddPlayerRigidbody();
-                player.EnableServerFall(False);
-            }
-
-            Interface.CallHook("OnPlayerTeleported", player, oldPosition, newPosition);
-        }*/
 
         public void Teleport(BasePlayer player, Vector3 newPosition, bool save = True)
         {
@@ -4461,7 +4408,9 @@ namespace Oxide.Plugins
                 if (player.IsConnected) // 1.1.2 @Def
                 {
                     player.EndLooting();
+                    player.UpdatePlayerCollider(false); //Added 1.4.1 Teleport bug fix (Facepunch default bug) @Bazz3l, Lucky Luciano, Khan.
                     StartSleeping(player);
+                    player.UpdatePlayerCollider(true); //Added 1.4.1 Teleport bug fix (Facepunch default bug) @Bazz3l, Lucky Luciano, Khan.
                     player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, True);
                 }
 
