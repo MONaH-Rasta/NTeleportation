@@ -19,13 +19,14 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
-Unique ID is now 4 numbers between 1000 and 9999
-Fix for setting home position
+Fixed cooldowns
+All pay and bypass amounts can now be set to -1 to be disabled
+Alternatively, you can set `"Bypass CMD": "pay",` to `"Bypass CMD": "",`
 */
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.4.9")]
+    [Info("NTeleportation", "nivex", "1.5.0")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -2268,8 +2269,8 @@ namespace Oxide.Plugins
 #if DEBUG
                         Puts("Debug mode - allowing self teleport.");
 #else
-                PrintMsgL(player, "CantTeleportToSelf");
-                return;
+                    PrintMsgL(player, "CantTeleportToSelf");
+                    return;
 #endif
                     }
                     Teleport(player, target, TeleportType.TP);
@@ -2863,7 +2864,7 @@ namespace Oxide.Plugins
                 
                 if (!string.IsNullOrEmpty(config.Settings.BypassCMD) && !paidmoney)
                 {
-                    if (cmdSent == config.Settings.BypassCMD.ToLower())
+                    if (cmdSent == config.Settings.BypassCMD.ToLower() && config.Home.Bypass > -1)
                     {
                         bool foundmoney = CheckEconomy(player, config.Home.Bypass);
 
@@ -2872,7 +2873,7 @@ namespace Oxide.Plugins
                             CheckEconomy(player, config.Home.Bypass, True);
                             paidmoney = True;
                             PrintMsgL(player, "HomeTPCooldownBypass", config.Home.Bypass);
-                            if (config.Home.Pay > 0)
+                            if (config.Home.Pay > -1)
                             {
                                 PrintMsgL(player, "PayToHome", config.Home.Pay);
                             }
@@ -2887,11 +2888,17 @@ namespace Oxide.Plugins
                     {
                         var remain = cooldown - (timestamp - homeData.Teleports.Timestamp);
                         PrintMsgL(player, "HomeTPCooldown", FormatTime(remain));
-                        if (config.Home.Bypass > 0)
+                        if (config.Home.Bypass > -1)
                         {
                             PrintMsgL(player, "HomeTPCooldownBypassP", config.Home.Bypass);
                             PrintMsgL(player, "HomeTPCooldownBypassP2", config.Settings.BypassCMD);
                         }
+                        return;
+                    }
+                    else
+                    {
+                        var remain = cooldown - (timestamp - homeData.Teleports.Timestamp);
+                        PrintMsgL(player, "HomeTPCooldown", FormatTime(remain));
                         return;
                     }
                 }
@@ -3003,7 +3010,7 @@ namespace Oxide.Plugins
 
                     if (UseEconomy())
                     {
-                        if (config.Home.Pay > 0 && !CheckEconomy(player, config.Home.Pay))
+                        if (config.Home.Pay > -1 && !CheckEconomy(player, config.Home.Pay))
                         {
                             PrintMsgL(player, "Interrupted");
                             PrintMsgL(player, "TPNoMoney", config.Home.Pay);
@@ -3011,7 +3018,7 @@ namespace Oxide.Plugins
                             TeleportTimers.Remove(player.userID);
                             return;
                         }
-                        else if (config.Home.Pay > 0 && !paidmoney)
+                        else if (config.Home.Pay > -1 && !paidmoney)
                         {
                             paidmoney = CheckEconomy(player, config.Home.Pay, True);
                             PrintMsgL(player, "TPMoney", (double)config.Home.Pay);
@@ -3342,22 +3349,20 @@ namespace Oxide.Plugins
                 tprData.Date = currentDate;
             }
 
-            var cooldown = player.IsAdmin ? 0 : GetLower(player, config.TPR.VIPCooldowns, config.TPR.Cooldown);
+            var cooldown = GetLower(player, config.TPR.VIPCooldowns, config.TPR.Cooldown);
             if (cooldown > 0 && timestamp - tprData.Timestamp < cooldown)
             {
                 var cmdSent = args.Length >= 2 ? args[1].ToLower() : string.Empty;
                 
                 if (!string.IsNullOrEmpty(config.Settings.BypassCMD))
                 {
-                    if (cmdSent == config.Settings.BypassCMD.ToLower())
+                    if (cmdSent == config.Settings.BypassCMD.ToLower() && config.TPR.Bypass > -1)
                     {
-                        bool foundmoney = CheckEconomy(player, config.TPR.Bypass);
-
-                        if (foundmoney)
+                        if (CheckEconomy(player, config.TPR.Bypass))
                         {
                             CheckEconomy(player, config.TPR.Bypass, True);
                             PrintMsgL(player, "TPRCooldownBypass", config.TPR.Bypass);
-                            if (config.TPR.Pay > 0)
+                            if (config.TPR.Pay > -1)
                             {
                                 PrintMsgL(player, "PayToTPR", config.TPR.Pay);
                             }
@@ -3372,15 +3377,21 @@ namespace Oxide.Plugins
                     {
                         var remain = cooldown - (timestamp - tprData.Timestamp);
                         PrintMsgL(player, "TPRCooldown", FormatTime(remain));
-                        if (config.TPR.Bypass > 0)
+                        if (config.TPR.Bypass > -1)
                         {
                             PrintMsgL(player, "TPRCooldownBypassP", config.TPR.Bypass);
-                            if (config.TPR.Pay > 0)
+                            if (config.TPR.Pay > -1)
                             {
                                 PrintMsgL(player, "PayToTPR", config.TPR.Pay);
                             }
                             PrintMsgL(player, "TPRCooldownBypassP2a", config.Settings.BypassCMD);
                         }
+                        return;
+                    }
+                    else
+                    {
+                        var remain = cooldown - (timestamp - tprData.Timestamp);
+                        PrintMsgL(player, "TPRCooldown", FormatTime(remain));
                         return;
                     }
                 }
@@ -3391,6 +3402,7 @@ namespace Oxide.Plugins
                     return;
                 }
             }
+
             var limit = GetHigher(player, config.TPR.VIPDailyLimits, config.TPR.DailyLimit, true);
             if (limit > 0 && tprData.Amount >= limit)
             {
@@ -3561,7 +3573,7 @@ namespace Oxide.Plugins
                     }
                     if (UseEconomy())
                     {
-                        if (config.TPR.Pay > 0)
+                        if (config.TPR.Pay > -1)
                         {
                             if (!CheckEconomy(originPlayer, config.TPR.Pay))
                             {
@@ -3703,8 +3715,11 @@ namespace Oxide.Plugins
                         {
                             var remain = cooldown - (timestamp - teleportData.Timestamp);
                             PrintMsgL(player, "TownTPCooldown", FormatTime(remain));
-                            PrintMsgL(player, "TownTPCooldownBypassP", config.Town.Bypass);
-                            PrintMsgL(player, "TownTPCooldownBypassP2", config.Settings.BypassCMD);
+                            if (config.Town.Bypass > -1)
+                            {
+                                PrintMsgL(player, "TownTPCooldownBypassP", config.Town.Bypass);
+                                PrintMsgL(player, "TownTPCooldownBypassP2", config.Settings.BypassCMD);
+                            }
                         }
                         break;
                     case "island":
@@ -3723,8 +3738,11 @@ namespace Oxide.Plugins
                         {
                             var remain = cooldown - (timestamp - teleportData.Timestamp);
                             PrintMsgL(player, "TownTPCooldown", FormatTime(remain));
-                            PrintMsgL(player, "TownTPCooldownBypassP", config.Island.Bypass);
-                            PrintMsgL(player, "TownTPCooldownBypassP2", config.Settings.BypassCMD);
+                            if (config.Island.Bypass > -1)
+                            {
+                                PrintMsgL(player, "TownTPCooldownBypassP", config.Island.Bypass);
+                                PrintMsgL(player, "TownTPCooldownBypassP2", config.Settings.BypassCMD);
+                            }
                         }
                         break;
                     case "outpost":
@@ -3743,8 +3761,11 @@ namespace Oxide.Plugins
                         {
                             var remain = cooldown - (timestamp - teleportData.Timestamp);
                             PrintMsgL(player, "OutpostTPCooldown", FormatTime(remain));
-                            PrintMsgL(player, "OutpostTPCooldownBypassP", config.Outpost.Bypass);
-                            PrintMsgL(player, "OutpostTPCooldownBypassP2", config.Settings.BypassCMD);
+                            if (config.Outpost.Bypass > -1)
+                            {
+                                PrintMsgL(player, "OutpostTPCooldownBypassP", config.Outpost.Bypass);
+                                PrintMsgL(player, "OutpostTPCooldownBypassP2", config.Settings.BypassCMD);
+                            }
                         }
                         break;
                     case "bandit":
@@ -3763,8 +3784,11 @@ namespace Oxide.Plugins
                         {
                             var remain = cooldown - (timestamp - teleportData.Timestamp);
                             PrintMsgL(player, "BanditTPCooldown", FormatTime(remain));
-                            PrintMsgL(player, "BanditTPCooldownBypassP", config.Bandit.Bypass);
-                            PrintMsgL(player, "BanditTPCooldownBypassP2", config.Settings.BypassCMD);
+                            if (config.Bandit.Bypass > -1)
+                            {
+                                PrintMsgL(player, "BanditTPCooldownBypassP", config.Bandit.Bypass);
+                                PrintMsgL(player, "BanditTPCooldownBypassP2", config.Settings.BypassCMD);
+                            }
                         }
                         break;
                     default:
@@ -4166,7 +4190,7 @@ namespace Oxide.Plugins
 
                 if (!string.IsNullOrEmpty(config.Settings.BypassCMD))
                 {
-                    if (cmdSent == config.Settings.BypassCMD.ToLower())
+                    if (cmdSent == config.Settings.BypassCMD.ToLower() && targetBypass > -1)
                     {
                         bool foundmoney = CheckEconomy(player, targetBypass);
 
@@ -4175,7 +4199,7 @@ namespace Oxide.Plugins
                             CheckEconomy(player, targetBypass, True);
                             paidmoney = True;
                             PrintMsgL(player, msgCooldownBypass, targetBypass);
-                            if (targetPay > 0)
+                            if (targetPay > -1)
                             {
                                 PrintMsgL(player, msgPay, targetPay);
                             }
@@ -4190,11 +4214,17 @@ namespace Oxide.Plugins
                     {
                         var remain = cooldown - (timestamp - teleportData.Timestamp);
                         PrintMsgL(player, msgCooldown, FormatTime(remain));
-                        if (targetBypass > 0)
+                        if (targetBypass > -1)
                         {
                             PrintMsgL(player, msgCooldownBypassP, targetBypass);
                             PrintMsgL(player, msgCooldownBypassP2, config.Settings.BypassCMD);
                         }
+                        return;                 
+                    }
+                    else
+                    {
+                        var remain = cooldown - (timestamp - teleportData.Timestamp);
+                        PrintMsgL(player, msgCooldown, FormatTime(remain));
                         return;
                     }
                 }
@@ -4284,14 +4314,14 @@ namespace Oxide.Plugins
 
                             if (UseEconomy())
                             {
-                                if (config.Outpost.Pay > 0 && !CheckEconomy(player, config.Outpost.Pay))
+                                if (config.Outpost.Pay > -1 && !CheckEconomy(player, config.Outpost.Pay))
                                 {
                                     PrintMsgL(player, "Interrupted");
                                     PrintMsgL(player, "TPNoMoney", config.Outpost.Pay);
                                     TeleportTimers.Remove(player.userID);
                                     return;
                                 }
-                                else if (config.Outpost.Pay > 0 && !paidmoney)
+                                else if (config.Outpost.Pay > -1 && !paidmoney)
                                 {
                                     CheckEconomy(player, config.Outpost.Pay, True);
                                     PrintMsgL(player, "TPMoney", (double)config.Outpost.Pay);
@@ -4361,14 +4391,14 @@ namespace Oxide.Plugins
 
                             if (UseEconomy())
                             {
-                                if (config.Bandit.Pay > 0 && !CheckEconomy(player, config.Bandit.Pay))
+                                if (config.Bandit.Pay > -1 && !CheckEconomy(player, config.Bandit.Pay))
                                 {
                                     PrintMsgL(player, "Interrupted");
                                     PrintMsgL(player, "TPNoMoney", config.Bandit.Pay);
                                     TeleportTimers.Remove(player.userID);
                                     return;
                                 }
-                                else if (config.Bandit.Pay > 0 && !paidmoney)
+                                else if (config.Bandit.Pay > -1 && !paidmoney)
                                 {
                                     CheckEconomy(player, config.Bandit.Pay, True);
                                     PrintMsgL(player, "TPMoney", (double)config.Bandit.Pay);
@@ -4438,14 +4468,14 @@ namespace Oxide.Plugins
 
                             if (UseEconomy())
                             {
-                                if (config.Island.Pay > 0 && !CheckEconomy(player, config.Island.Pay))
+                                if (config.Island.Pay > -1 && !CheckEconomy(player, config.Island.Pay))
                                 {
                                     PrintMsgL(player, "Interrupted");
                                     PrintMsgL(player, "TPNoMoney", config.Island.Pay);
                                     TeleportTimers.Remove(player.userID);
                                     return;
                                 }
-                                else if (config.Island.Pay > 0 && !paidmoney)
+                                else if (config.Island.Pay > -1 && !paidmoney)
                                 {
                                     CheckEconomy(player, config.Island.Pay, True);
                                     PrintMsgL(player, "TPMoney", (double)config.Island.Pay);
@@ -4525,14 +4555,14 @@ namespace Oxide.Plugins
 
                             if (UseEconomy())
                             {
-                                if (config.Town.Pay > 0 && !CheckEconomy(player, config.Town.Pay))
+                                if (config.Town.Pay > -1 && !CheckEconomy(player, config.Town.Pay))
                                 {
                                     PrintMsgL(player, "Interrupted");
                                     PrintMsgL(player, "TPNoMoney", config.Town.Pay);
                                     TeleportTimers.Remove(player.userID);
                                     return;
                                 }
-                                else if (config.Town.Pay > 0 && !paidmoney)
+                                else if (config.Town.Pay > -1 && !paidmoney)
                                 {
                                     CheckEconomy(player, config.Town.Pay, True);
                                     PrintMsgL(player, "TPMoney", (double)config.Town.Pay);
