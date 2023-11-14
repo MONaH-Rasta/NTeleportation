@@ -19,6 +19,10 @@ using static UnityEngine.Vector3;
 using System.Text.RegularExpressions;
 
 /*
+    1.0.89:
+    Crafting is no longer cancelled on teleport
+
+    1.0.88:
     Fixed teleport from mounted entities (cargoship, boats, etc), garbage heap barrels, etc
     Added hook OnTeleportRequested(BasePlayer player, BasePlayer target) - no return behavior
     Commands /bandit and /outpost will not be registered if disabled or CompoundTeleport is loaded @Matt
@@ -28,7 +32,7 @@ using System.Text.RegularExpressions;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.0.87")]
+    [Info("NTeleportation", "nivex", "1.0.88")]
     class NTeleportation : RustPlugin
     {
         private static readonly Vector3 Up = up;
@@ -3891,7 +3895,7 @@ namespace Oxide.Plugins
                 player.SetParent(null, true, true);
                 if (player.IsConnected)
                 {
-                    player.StartSleeping();
+                    StartSleeping(player);
                     player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, true);
                 }
                 player.UpdatePlayerCollider(true);
@@ -3913,6 +3917,21 @@ namespace Oxide.Plugins
                 player.UpdatePlayerRigidbody(true);
                 player.EnableServerFall(false);
             }
+        }
+
+        public void StartSleeping(BasePlayer player)
+        {
+            if (player.IsSleeping()) return;
+
+            player.SetPlayerFlag(BasePlayer.PlayerFlags.Sleeping, true);
+
+            if (!BasePlayer.sleepingPlayerList.Contains(player))
+                BasePlayer.sleepingPlayerList.Add(player);
+
+            player.sleepStartTime = Time.time;
+            player.CancelInvoke("InventoryUpdate");
+            player.CancelInvoke("TeamUpdate");
+            player.inventory.loot.Clear();
         }
         #endregion
 
