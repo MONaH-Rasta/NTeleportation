@@ -19,14 +19,15 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
-Revert teleport changes
+Revert teleport changes back to 1.3.8 to fix some issues with dying upon waking up after teleport
+Fixed AreFriends.InvalidCastException
 Fix for building priv check
 Teleport pending message updated to include TPC command
 */
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.9")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.4.0")]
     class NTeleportation : RustPlugin
     {
         private bool newSave;
@@ -2949,12 +2950,19 @@ namespace Oxide.Plugins
 
         private bool AreFriends(string playerId, string targetId)
         {
-            if (!config.TPT.UseFriends || !IsEnabled(targetId, "friend") || Friends == null || !Friends.IsLoaded)
+            if (!config.TPT.UseFriends || !IsEnabled(targetId, "friend") || Friends == null || !Friends.IsLoaded || string.IsNullOrEmpty(playerId) || string.IsNullOrEmpty(targetId))
             {
                 return False;
             }
 
-            return Friends.Call<bool>("AreFriends", playerId, targetId);
+            var success = Friends?.Call("AreFriends", playerId, targetId);
+
+            if (success is bool)
+            {
+                return (bool)success;
+            }
+
+            return false; // Friends.Call<bool>("AreFriends", playerId, targetId);
         }
 
         private bool IsInSameClan(string playerId, string targetId)
@@ -3046,7 +3054,7 @@ namespace Oxide.Plugins
                 int index;
                 foreach (var arg in args) 
                 {
-                    if (int.TryParse(arg.Replace("#", string.Empty), out index) && targets.Count < --index && index > -1)
+                    if (int.TryParse(arg.Replace("#", string.Empty), out index) && --index < targets.Count && index > -1)
                     {
                         target = targets[index];
                         break;
