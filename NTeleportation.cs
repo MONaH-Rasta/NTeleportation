@@ -19,6 +19,9 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
+    1.2.9:
+    Fix for hook call
+
     1.2.8:
     Fix for CommandTeleportNear.IndexOutOfRangeException
     Rewrote auto generation for bandit and outpost locations
@@ -156,7 +159,7 @@ using Network;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.8")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.2.9")]
     class NTeleportation : RustPlugin
     {
         private string banditPrefab;
@@ -4451,7 +4454,7 @@ namespace Oxide.Plugins
         {
             if (!player.IsSleeping())
             {
-                Interface.CallHook("OnPlayerSleep", this);
+                Interface.CallHook("OnPlayerSleep", player);
                 player.SetPlayerFlag(BasePlayer.PlayerFlags.Sleeping, True);
                 player.sleepStartTime = Time.time;
                 BasePlayer.sleepingPlayerList.Add(player);
