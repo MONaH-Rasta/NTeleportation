@@ -22,7 +22,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.7.7")]
+    [Info("NTeleportation", "nivex", "1.7.8")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -35,7 +35,7 @@ namespace Oxide.Plugins
         private bool newSave;
         private const string NewLine = "\n";
         private const string TPA = "tpa";
-        private static readonly string[] nullArg = {};
+        private static readonly string[] nullArg = { };
         private const string PermAdmin = "nteleportation.admin";
         private const string PermRestrictions = "nteleportation.norestrictions";
         private const string ConfigDefaultPermVip = "nteleportation.vip";
@@ -48,6 +48,7 @@ namespace Oxide.Plugins
         private const string PermRadiusHome = "nteleportation.radiushome";
         private const string PermCraftTpR = "nteleportation.crafttpr";
         private const string PermTpR = "nteleportation.tpr";
+        private const string PermTpA = "nteleportation.tpa";
         private const string PermTp = "nteleportation.tp";
         private const string PermDisallowTpToMe = "nteleportation.disallowtptome";
         private const string PermTpT = "nteleportation.tpt";
@@ -187,6 +188,11 @@ namespace Oxide.Plugins
                 player.ClientRPCPlayer(null, player, "SetHostileLength", 0f);
             }
 
+            if (player.unHostileTime > UnityEngine.Time.realtimeSinceStartup)
+            {
+                player.unHostileTime = UnityEngine.Time.realtimeSinceStartup;
+            }
+
             return new BasePlayer.SpawnPoint { pos = settings.Location, rot = Quaternion.identity };
         }
 
@@ -194,7 +200,7 @@ namespace Oxide.Plugins
         {
             [JsonProperty(PropertyName = "Delay Saving Data On Server Save")]
             public double SaveDelay { get; set; } = 4.0;
-			
+
             [JsonProperty("TPB")]
             public TPBSettings TPB = new TPBSettings();
 
@@ -469,9 +475,9 @@ namespace Oxide.Plugins
             public bool AllowCave { get; set; }
             [JsonProperty(PropertyName = "Enabled Color")]
             public string EnabledColor { get; set; } = "green";
-            
+
             [JsonProperty(PropertyName = "Disabled Color")]
-            public string DisabledColor { get; set; } = "red";											  
+            public string DisabledColor { get; set; } = "red";
         }
 
         // Added `TPR => Play Sounds To Request Target` (false)
@@ -499,6 +505,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Require Player To Be Friend, Clan Mate, Or Team Mate")]
             public bool UseClans_Friends_Teams { get; set; }
+
+            [JsonProperty(PropertyName = "Require nteleportation.tpa to accept TPR requests")]
+            public bool RequireTPAPermission { get; set; }
 
             [JsonProperty(PropertyName = "Allow Cave")]
             public bool AllowCave { get; set; }
@@ -1200,7 +1209,7 @@ namespace Oxide.Plugins
                         "Daily amount of teleports: {2}"
                     })
                 },
-                
+
                 {"TPT_True", "enabled"},
                 {"TPT_False", "disabled"},
                 {"TPT_clan", "{1} clan has been {0}."},
@@ -1209,9 +1218,9 @@ namespace Oxide.Plugins
                 {"NotValidTPT", "Not valid, player is not"},
                 {"NotValidTPTFriend", " a friend!"},
                 {"NotValidTPTTeam", " on your team!"},
-                {"NotValidTPTClan", " in your clan!"},												  
+                {"NotValidTPTClan", " in your clan!"},
                 {"TPTInfo", "{4} auto accepts teleport requests.\n<color={5}>Green</color> = <color={5}>Enabled</color>\n<color={6}>Red</color> = <color={6}>Disabled</color>\n\n/{0} <color={1}>clan</color> - Toggle {4} for clan members/allies.\n/{0} <color={2}>team</color> - Toggle {4} for teammates.\n/{0} <color={3}>friend</color> - Toggle {4} for friends."},
-                
+
                 {"PlayerNotFound", "The specified player couldn't be found please try again!"},
                 {"MultiplePlayers", "Found multiple players: {0}"},
                 {"CantTeleportToSelf", "You can't teleport to yourself!"},
@@ -1711,7 +1720,7 @@ namespace Oxide.Plugins
                         "Ежедневный лимит телепортаций: {2}"
                     })
                 },
-                
+
                 {"TPT_True", "включено"},
                 {"TPT_False", "выключено"},
                 {"TPT_clan", "{1} clan теперь {0}."},
@@ -2220,7 +2229,7 @@ namespace Oxide.Plugins
                         "Щоденний ліміт телепортацій: {2}"
                     })
                 },
-                
+
                 {"TPT_True", "enabled"},
                 {"TPT_False", "disabled"},
                 {"TPT_clan", "{1} clan has been {0}."},
@@ -2230,9 +2239,9 @@ namespace Oxide.Plugins
                 {"NotValidTPTFriend", " a friend!"},
                 {"NotValidTPTTeam", " on your team!"},
                 {"NotValidTPTClan", " in your clan!"},
-												  
+
                 {"TPTInfo", "{4} auto accepts teleport requests.\n<color={5}>Green</color> = <color={5}>Enabled</color>\n<color={6}>Red</color> = <color={6}>Disabled</color>\n\n/{0} <color={1}>clan</color> - Toggle {4} for clan members/allies.\n/{0} <color={2}>team</color> - Toggle {4} for teammates.\n/{0} <color={3}>friend</color> - Toggle {4} for friends."},
-                				
+
                 {"PlayerNotFound", "Вказаного гравця не виявлено, будь ласка, спробуйте ще раз!"},
                 {"MultiplePlayers", "Знайдено декілька гравців: {0}"},
                 {"CantTeleportToSelf", "Ви не можете телепортуватися до себе!"},
@@ -2568,6 +2577,7 @@ namespace Oxide.Plugins
             permission.RegisterPermission(PermTp, this);
             permission.RegisterPermission(PermTpB, this);
             permission.RegisterPermission(PermTpR, this);
+            permission.RegisterPermission(PermTpA, this);
             permission.RegisterPermission(PermTpConsole, this);
             permission.RegisterPermission(PermTpT, this);
             permission.RegisterPermission(PermTpN, this);
@@ -2957,7 +2967,7 @@ namespace Oxide.Plugins
                 {
                     insideTerrainViolations.Add(player.userID);
                 }
-                return false;
+                return true;
             }
 
             return null;
@@ -4550,28 +4560,22 @@ namespace Oxide.Plugins
             if (DisabledCommandData.DisabledCommands.Contains(command.ToLower())) { user.Reply("Disabled command: " + command); return; }
             var player = user.Object as BasePlayer;
             if (!player || !IsAllowedMsg(player, PermTpT))
-
                 return;
-            if (args.Length < 1)
+            if (args.Length > 0)
             {
-                PrintMsgL(player, "TPTInfo", command, IsEnabled(player.UserIDString, "clan") ? config.TPT.EnabledColor : config.TPT.DisabledColor, 
-                    IsEnabled(player.UserIDString, "team") ? config.TPT.EnabledColor : config.TPT.DisabledColor, 
-                    IsEnabled(player.UserIDString, "friend") ? config.TPT.EnabledColor : config.TPT.DisabledColor,
-                    command.ToUpper(), config.TPT.EnabledColor, config.TPT.DisabledColor);
-                return;
-            }
-            switch (args[0].ToLower())
-            {
-                case "friend":
-                case "clan":
-                case "team":
+                switch (args[0].ToLower())
                 {
-                    ToggleTPTEnabled(player, args[0].ToLower(), command);
-                    return;
+                    case "friend":
+                    case "clan":
+                    case "team":
+                        {
+                            ToggleTPTEnabled(player, args[0].ToLower(), command);
+                            return;
+                        }
                 }
             }
-            PrintMsgL(player, "TPTInfo", command, IsEnabled(player.UserIDString, "clan") ? config.TPT.EnabledColor : config.TPT.DisabledColor, 
-                IsEnabled(player.UserIDString, "team") ? config.TPT.EnabledColor : config.TPT.DisabledColor, 
+            PrintMsgL(player, "TPTInfo", command, IsEnabled(player.UserIDString, "clan") ? config.TPT.EnabledColor : config.TPT.DisabledColor,
+                IsEnabled(player.UserIDString, "team") ? config.TPT.EnabledColor : config.TPT.DisabledColor,
                 IsEnabled(player.UserIDString, "friend") ? config.TPT.EnabledColor : config.TPT.DisabledColor,
                 command.ToUpper(), config.TPT.EnabledColor, config.TPT.DisabledColor);
         }
@@ -4596,14 +4600,14 @@ namespace Oxide.Plugins
             return Clans != null && Convert.ToBoolean(Clans?.Call("IsMemberOrAlly", playerId, targetId));
         }
 
-        private object OnTeleportRequested(BasePlayer target, BasePlayer player)
+        private bool InstantTeleportAccept(BasePlayer target, BasePlayer player)
         {
-            if (!permission.UserHasPermission(target.UserIDString, PermTpT) || !permission.UserHasPermission(player.UserIDString, PermTpT))// || !TPT.ContainsKey(target.UserIDString))
+            if (!permission.UserHasPermission(target.UserIDString, PermTpT) || !permission.UserHasPermission(player.UserIDString, PermTpT))
             {
-                return null;
+                return false;
             }
-            
-            if ((config.TPT.UseClans && IsInSameClan(player.UserIDString, target.UserIDString) && !TPT.ContainsKey(target.UserIDString)) 
+
+            if ((config.TPT.UseClans && IsInSameClan(player.UserIDString, target.UserIDString) && !TPT.ContainsKey(target.UserIDString))
                 || (config.TPT.UseClans && IsEnabled(target.UserIDString, "clan") && IsInSameClan(player.UserIDString, target.UserIDString)))
             {
                 CommandTeleportAccept(target.IPlayer, TPA, nullArg);
@@ -4621,7 +4625,7 @@ namespace Oxide.Plugins
 
             return true;
         }
-        
+
         bool IsEnabled(string targetId, string value)
         {
             if (TPT.ContainsKey(targetId) && TPT[targetId].Contains(value))
@@ -4630,7 +4634,7 @@ namespace Oxide.Plugins
             }
             return true;
         }
-        
+
         void ToggleTPTEnabled(BasePlayer target, string value, string command)
         {
             List<string> list;
@@ -4905,7 +4909,7 @@ namespace Oxide.Plugins
                 {
                     SendEffect(target, config.TPR.TeleportRequestEffects);
                 }
-                if (Interface.CallHook("OnTeleportRequested", target, player) == null)
+                if (Interface.CallHook("OnTeleportRequested", target, player) == null && !InstantTeleportAccept(target, player))
                 {
                     TeleportRequestUI(target, player.displayName);
                 }
@@ -4921,7 +4925,7 @@ namespace Oxide.Plugins
             if (DisabledCommandData.DisabledCommands.Contains(command.ToLower())) { user.Reply("Disabled command: " + command); return; }
             if (!config.Settings.TPREnabled) { user.Reply("TPR is not enabled in the config."); return; }
             var player = user.Object as BasePlayer;
-            if (!IsAllowedMsg(player, PermTpR)) return;
+            if (!IsAllowedMsg(player, config.TPR.RequireTPAPermission ? PermTpA : PermTpR)) return;
             DestroyTeleportRequestCUI(player);
             if (args.Length != 0)
             {
@@ -5004,6 +5008,7 @@ namespace Oxide.Plugins
             var countdown = GetLower(originPlayer, config.TPR.VIPCountdowns, config.TPR.Countdown);
             PrintMsgL(originPlayer, "Accept", player.displayName, countdown);
             PrintMsgL(player, "AcceptTarget", originPlayer.displayName);
+            Interface.CallHook("OnTeleportAccepted", player, originPlayer);
             if (config.TPR.PlaySoundsWhenTargetAccepts)
             {
                 SendEffect(originPlayer, config.TPR.TeleportAcceptEffects);
@@ -5102,6 +5107,7 @@ namespace Oxide.Plugins
                     var limit = GetHigher(originPlayer, config.TPR.VIPDailyLimits, config.TPR.DailyLimit, true);
                     if (limit > 0) PrintMsgL(originPlayer, "TPRAmount", limit - tprData.Amount);
                     TeleportTimers.Remove(originPlayer.userID);
+                    Interface.CallHook("OnTeleportRequestCompleted", player, originPlayer);
                 })
             };
             reqTimer.Destroy();
@@ -5287,6 +5293,7 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "TPCancelled");
                 PrintMsgL(teleportTimer.TargetPlayer, "TPCancelledTarget", player.displayName);
                 TeleportTimers.Remove(player.userID);
+                Interface.CallHook("OnTeleportRejected", player, teleportTimer.TargetPlayer);
                 return;
             }
             foreach (var keyValuePair in TeleportTimers)
@@ -5296,16 +5303,15 @@ namespace Oxide.Plugins
                 PrintMsgL(keyValuePair.Value.OriginPlayer, "TPCancelledTarget", player.displayName);
                 PrintMsgL(player, "TPYouCancelledTarget", keyValuePair.Value.OriginPlayer.displayName);
                 TeleportTimers.Remove(keyValuePair.Key);
+                Interface.CallHook("OnTeleportRejected", player, keyValuePair.Value.OriginPlayer);
                 return;
             }
-            BasePlayer target;
-            if (!PlayersRequests.TryGetValue(player.userID, out target))
+            if (!PlayersRequests.TryGetValue(player.userID, out var target))
             {
                 PrintMsgL(player, "NoPendingRequest");
                 return;
             }
-            Timer reqTimer;
-            if (PendingRequests.TryGetValue(player.userID, out reqTimer))
+            if (PendingRequests.TryGetValue(player.userID, out var reqTimer))
             {
                 reqTimer.Destroy();
                 PendingRequests.Remove(player.userID);
@@ -5322,6 +5328,7 @@ namespace Oxide.Plugins
             PlayersRequests.Remove(player.userID);
             PrintMsgL(player, "Cancelled", target.displayName);
             PrintMsgL(target, "CancelledTarget", player.displayName);
+            Interface.CallHook("OnTeleportRejected", player, target);
         }
 
         private void CommandDynamic(IPlayer user, string command, string[] args)
@@ -5600,7 +5607,7 @@ namespace Oxide.Plugins
                     PrintMsgL(player, "NotUseable", FormatTime(player, getUseableTime));
                     return;
                 }
-                err = CheckPlayer(player, settings.UsableOutOfBuildingBlocked, settings.CanCraft(player, command), true, command);
+                err = CheckPlayer(player, settings.UsableOutOfBuildingBlocked, settings.CanCraft(player, command), true, "town");
                 if (err != null)
                 {
                     PrintMsgL(player, err);
@@ -5749,7 +5756,7 @@ namespace Oxide.Plugins
                             PrintMsgL(player, "CannotTeleportFromHome");
                             return;
                         }
-                        err = CheckPlayer(player, settings.UsableOutOfBuildingBlocked, settings.CanCraft(player, command.ToLower()), true, command.ToLower(), settings.AllowCave);
+                        err = CheckPlayer(player, settings.UsableOutOfBuildingBlocked, settings.CanCraft(player, command.ToLower()), true, "town", settings.AllowCave);
                         if (err != null)
                         {
                             Interrupt(player, paidmoney, settings.Bypass);
@@ -5856,7 +5863,7 @@ namespace Oxide.Plugins
                         user.Reply(_("MultiplePlayers", player, GetMultiplePlayers(players)));
                         return;
                     }
-                    var targetPlayer = players.First();
+                    var targetPlayer = players[0];
                     players.Clear();
                     float x;
                     if (!float.TryParse(args[1], out x)) x = -10000f;
@@ -6119,10 +6126,7 @@ namespace Oxide.Plugins
 
                 player.ClearEntityQueue(null);
                 player.SendFullSnapshot();
-                if (config.Settings.AutoWakeUp && player.IsOnGround())
-                {
-                    NextTick(player.EndSleeping);
-                }
+                if (CanWake(player)) NextTick(player.EndSleeping);
             }
 
             if (!player._limitedNetworking)
@@ -6140,6 +6144,12 @@ namespace Oxide.Plugins
             }
 
             Interface.CallHook("OnPlayerTeleported", player, oldPosition, newPosition);
+        }
+
+        private bool CanWake(BasePlayer player)
+        {
+            if (!config.Settings.AutoWakeUp) return false;
+            return player.IsOnGround() || player.limitNetworking || player.IsFlying || player.IsAdmin;
         }
 
         public void RemoveProtections(ulong userid)
@@ -6212,7 +6222,7 @@ namespace Oxide.Plugins
         private bool IsInAllowedMonument(Vector3 target, string mode)
         {
             foreach (var mi in monuments)
-            {                
+            {
                 if (config.Settings.Interrupt.BypassMonumentMarker && mi.prefab.Contains("monument_marker"))
                 {
                     continue;
@@ -6348,9 +6358,12 @@ namespace Oxide.Plugins
                 }
             }
 
-            if (config.Settings.Interrupt.Hostile && (mode == "bandit" || mode == "outpost" || mode == "town") && player.IsHostile())
+            if (config.Settings.Interrupt.Hostile && (mode == "bandit" || mode == "outpost" || mode == "town"))
             {
-                return "TPHostile";
+                if (player.State.unHostileTimestamp > TimeEx.currentTimestamp || player.unHostileTime > UnityEngine.Time.realtimeSinceStartup)
+                {
+                    return "TPHostile";
+                }
             }
 
             if (config.Settings.Interrupt.Junkpiles && IsOnJunkPile(player))
@@ -6452,12 +6465,12 @@ namespace Oxide.Plugins
             {
                 return "TPAboveWater";
             }
-            
+
             if (config.Settings.Interrupt.UnderWater && Math.Round(player.transform.position.y, 2) < Math.Round(TerrainMeta.WaterMap.GetHeight(player.transform.position), 2) && !IsInAllowedMonument(player.transform.position, mode))
             {
                 return "TPUnderWater";
             }
-            
+
             return null;
         }
 
@@ -6731,9 +6744,8 @@ namespace Oxide.Plugins
 
         private bool IsBlockedOnIceberg(Vector3 position)
         {
-            if (!config.Home.AllowIceberg) return false;
-            RaycastHit hit;
-            if (!Physics.SphereCast(position + new Vector3(0f, 1f), 1f, Vector3.down, out hit, 250f, Layers.Mask.Terrain | Layers.Mask.World)) return false;
+            if (config.Home.AllowIceberg) return false;
+            if (!Physics.SphereCast(position + new Vector3(0f, 1f), 1f, Vector3.down, out var hit, 250f, Layers.Mask.Terrain | Layers.Mask.World)) return false;
             return hit.collider.name.Contains("ice_sheet") || hit.collider.name.Contains("iceberg");
         }
 
@@ -7174,8 +7186,7 @@ namespace Oxide.Plugins
                 return players;
             }
 
-            BasePlayer target;
-            if (_ids.TryGetValue(arg, out target) && target.IsValid())
+            if (_ids.TryGetValue(arg, out var target) && target.IsValid())
             {
                 if (all || target.IsConnected)
                 {
@@ -7184,16 +7195,16 @@ namespace Oxide.Plugins
                 }
             }
 
-            foreach (var user in all ? BasePlayer.allPlayerList : BasePlayer.activePlayerList)
+            foreach (var target2 in all ? BasePlayer.allPlayerList : BasePlayer.activePlayerList)
             {
-                if (user == null || string.IsNullOrEmpty(user.displayName) || players.Contains(user))
+                if (target2 == null || string.IsNullOrEmpty(target2.displayName) || players.Contains(target2))
                 {
                     continue;
                 }
 
-                if (user.UserIDString == arg || user.displayName.Contains(arg, CompareOptions.OrdinalIgnoreCase))
+                if (target2.UserIDString == arg || target2.displayName.Contains(arg, CompareOptions.OrdinalIgnoreCase))
                 {
-                    players.Add(user);
+                    players.Add(target2);
                 }
             }
 
