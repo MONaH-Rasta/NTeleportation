@@ -19,172 +19,16 @@ using Oxide.Core.Libraries.Covalence;
 using Network;
 
 /*
-    1.3.2:
-    Removed Offset TPR Target due to an exploit
-
-    1.3.1:
-    Rewrote Offset TPR Target
-        I believe it was possible this was causing players to teleport under the map in rare cases
-    Removed all restrictions that could prevent /tpc from being allowed
-        This should've never been blocked in the first place
-    Blocked teleport when the location of the teleport is within 5 meters of 0, 0, 0
-        Without this the player would be killed when teleported under the map. So we'll just prevent this user error.
-    Auto detect invalid locations for Bandit and Outpost
-        If the distance is further than 100 meters from either location then said location will be reset
-        Without this the player would not be teleported to a valid Bandit or Outpost location
-        This invalid location could be under the map, in a base, etc literally anywhere. So we'll just prevent this user error.
-
-    1.3.0:
-    Excluded power sub stations from Interrupt TP Monuments
-    Fix for caves
-    Added caves to be drawn using /spm command
-    Added Town - Allow Caves (false)
-    Added TPT - Allow Caves (false)
-    Added TPR/TPA - Allow Caves (false)
-    Added Bandit - Allow Caves (false) - This will not apply if using CompoundTeleport
-    Added Outpost - Allow Caves (false) - This will not apply if using CompoundTeleport
-
-    1.2.9:
-    Fix for hook call
-
-    1.2.8:
-    Fix for CommandTeleportNear.IndexOutOfRangeException
-    Rewrote auto generation for bandit and outpost locations
-    Added messages to show the reason why bandit or outpost command is disabled
-    Possible fix for config resetting
-    Added message to server console when default config is loaded
-
-    1.2.7:
-    Removed teleport protection
-    Removed conversion from old to new config
-    Cleaned up the config
-    Commands that are not enabled in the config will no longer be registered
-
-    1.2.6:
-    Bandit command will be disabled if the coordinates are invalid
-    Outpost command will be disabled if the coordinates are invalid
-    Removed teleport protection to and from caves
-
-    1.2.5:
-    Added messages for when a command is not enabled in the config
-
-    1.2.4:
-    Fixed Interrupt TP On Oil Rig
-    Fixed hostility timer to use the state of hostility time
-    Fixed autogen positions for Bandit and Outpost
-    Added protection to prevent teleporting players under the world - this was avoidable by using wipe on upgrade or change
-    Bandit and Outpost locations will now auto generate when 1) the location is not set, or 2) wipe on upgrade or change is enabled
-    Changed CheckCupboardBlock to allow teleport if the player can build when no cupboard is found
-    Invisible players no longer send a network update after teleporting
-
-    1.2.3:
-    Reworked how config is created
-    Fixed battery exploit
-    Fix for caves?
-    Verified spawn locations of chairs, piano and workbenches are properly set
-    Fixed issue with commands not being registered and causing confusion to users who haven't looked at the config yet
-    Changed authors code to use unlimited upper limit when default is 0
-    Changed authors code to use unlimited limit when VIP is 0
-    Increased the overlap radius when checking for a foundation while setting a home
-
-    1.2.2:
-    Fixed tnt command not using arguments
-    Fixed town command not being registered
-    Fixed outpost and bandit location not being set after wipe, which required plugin to be reloaded
-    Fixed auto generation for bandit and outpost
-    Limits tweaked again to favor the upper limit @xanela @FuelStream
-    Outpost and bandit commands will now show a disabled message when not enabled in the config, instead of being disabled entirely
-
-    1.2.1:
-    Configuration rewritten to fix issues with resetting, being difficult to read, and to meet standards. Your config will convert automatically.
-    Added announcement to server console on additions/removals after updating
-    Added messages for bandit and outpost when using /tpinfo
-    Added `Settings > Check Boundaries On Teleport X Y Z (true)`
-    Added `Settings > TPR > Allow TPB (true)`
-    Added `Settings > Draw Sphere On Set Home (true)`
-    Added `Settings > Block Teleport (NoEscape) (false)`
-    Added `Settings > Block Teleport (ZoneManager) (false)`
-    Added multiple null checks
-    Added use of cached variables for true, false, up, down, zero
-    Added command `/spm` as a tool for admins @Tanki
-    Fixed `/tp player x y z` @Marcus101RR
-    Fixed AutoGenBandit not generating
-    Fixed AutoGenBandit position
-    Fixed AutoGenOutpost not generating
-    Fixed issues with interrupt monument not working correctly
-    Removed test code
-    Removed some unused variables
-    Rewrote various bits of outdated code
-    Converted all commands to covalence
-    Added command `tnt [commandname]` to toggle enabling and disabling of commands. Usable from consoles, and in-game chat. Requires admin.
-    Limits tweaked to favor the upper limit @xanela
-
-    1.1.7:
-    Disabled debug, oops
-
-    1.1.6:
-    TPT settings are now correctly added to the config
-    Fixed InterruptTPOnMonument not working at some monuments
-
-    Added at the request of @Orange:
-    - bool API_HavePendingRequest(BasePlayer player)
-    - bool API_HaveAvailableHomes(BasePlayer player)
-    - List<string> API_GetHomes(BasePlayer player)
-    - Added console commands: tpr, home, tpa, tpc, sethome, removehome
-
-    1.1.5:
-    Disabled upgrade support for versions 1.0.89 and below until fixed.
-    Added config setting TPT > UseClans (default: true) - If set false, users cannot TPT to clan mates even with nteleportation.tpt permission
-    Added config setting TPT > UseFriends (default: true) - If set false, users cannot TPT to friends even with nteleportation.tpt permission
-    Added config setting TPT > UseTeams (default: true) - If set false, users cannot TPT to team mates even with nteleportation.tpt permission
-    Added command /tpt clan|team|friend FOR INDIVIDUAL PLAYERS to toggle allowing/blocking of players trying to instantly teleport to them when using /tpt name
-    Added new language messages for these related TPT features (English only)
-    Fix for desync of players after teleport when close to teleport point or offline. Credits @Death
-
-    1.1.4:
-    Fixed exploit where players could loot sleepers in safe zones after using teleport
-    Fix for TPT command allowing teleports to all, admins are still allowed
-
-    1.1.3:
-    Rewrote and fixed /tpt command
-    Allowed admins to teleport to self for testing purposes
-
-    1.1.2:
-    Fixed players being unable to move after teleport
-    Replaced specific trigger removal to remove all triggers instead
-
-    1.1.1: 
-    Fixed being dragged under map after teleport while standing on a garbage pile plank!! Ty @Ryrzy for video to reproduce
-    Fixed buildings not loading immediately after teleport. Credits @ctv
-    Fixed not being able to sethome on foundation @rustkoyak
-    Smoother transition on teleport
-    Added command /TPT <player name> - teleport to a friend, clan or team member. Requires 'nteleportation.tpt' permission. Contribution & Credits @Mal.Speedie
-    Clarification that homes/town/outpost/bandit may be invalid on map wipe when `WipeOnUpgradeOrChange` is `false` in config
-    Added null check in OnPlayerSleepEnded
-    Removed position check in OnPlayerSleepEnded as its obsolete now
-
-    1.1.0:
-    Fix for players from being dragged under the map after teleporting, by forcing them to their teleport position when they wake up if water is below them.
-
-    1.0.9:
-    Fix for players teleporting under the map when teleporting to a base
-    Fix for players disconnecting with RigidBody.get_velocity() NullReferenceException
-    Player ends looting before teleport, instead of when put to sleep.
-
-    1.0.88:
-    Crafting is no longer cancelled on teleport
-
-    1.0.87:
-    Fixed teleport from mounted entities (cargoship, boats, etc), garbage heap barrels, etc
-    Added hook OnTeleportRequested(BasePlayer player, BasePlayer target) - no return behavior
-    Commands /bandit and /outpost will not be registered if disabled or CompoundTeleport is loaded @Matt
-    Added setting InterruptTPOnOilrig (false) @rustkoyak
-    Bandit and Outpost locations will be properly reset on wipe
+    1.3.3:
+    Fixed GetFloor.NullReferenceException
+    Rewrote method that finds players
+    Attempted to fix issues with setting homes
+    Attempted to fix issues with homes being removed
 */
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.2")]
+    [Info("NTeleportation", "Author Nogrod, Maintainer nivex", "1.3.3")]
     class NTeleportation : RustPlugin
     {
         private string banditPrefab;
@@ -192,8 +36,8 @@ namespace Oxide.Plugins
         private const bool True = true;
         private const bool False = false;
         private Vector3 Zero = default(Vector3);
-        private static readonly Vector3 Up = Vector3.up;
-        private static readonly Vector3 Down = Vector3.down;
+        private readonly Vector3 Up = Vector3.up;
+        private readonly Vector3 Down = Vector3.down;
         private const string NewLine = "\n";
         private const string ConfigDefaultPermVip = "nteleportation.vip";
         private const string PermHome = "nteleportation.home";
@@ -246,7 +90,7 @@ namespace Oxide.Plugins
         private float boundary;
         private readonly int triggerLayer = LayerMask.GetMask("Trigger");
         private readonly int groundLayer = LayerMask.GetMask("Terrain", "World");
-        private readonly int buildingLayer = LayerMask.GetMask("Terrain", "World", "Construction", "Deployed");
+        private int buildingLayer { get; set; } = LayerMask.GetMask("Terrain", "World", "Construction", "Deployed");
         private readonly int blockLayer = LayerMask.GetMask("Construction");
         private readonly int deployedLayer = LayerMask.GetMask("Deployed");
         private readonly Dictionary<ulong, TeleportTimer> TeleportTimers = new Dictionary<ulong, TeleportTimer>();
@@ -4195,7 +4039,7 @@ namespace Oxide.Plugins
             if (DisabledTPT.DisabledCommands.Contains(command.ToLower())) { p.Reply("Disabled command: " + command); return; }
             var player = p.Object as BasePlayer;
             if (player != null && !IsAllowedMsg(player, PermTpConsole)) return;
-            HashSet<BasePlayer> players;
+            List<BasePlayer> players;
             switch (command)
             {
                 case "teleport.topos":
@@ -4216,6 +4060,7 @@ namespace Oxide.Plugins
                         return;
                     }
                     var targetPlayer = players.First();
+                    players.Clear();
                     float x;
                     if (!float.TryParse(args[1], out x)) x = -10000f;
                     float y;
@@ -4260,14 +4105,17 @@ namespace Oxide.Plugins
                     if (players.Count > 1)
                     {
                         p.Reply(_("MultiplePlayers", player, string.Join(", ", players.Select(t => t.displayName).ToArray())));
+                        players.Clear();
                         return;
                     }
                     targetPlayer = players.First();
                     if (targetPlayer == originPlayer)
                     {
+                        players.Clear();
                         p.Reply(_("CantTeleportPlayerToSelf", player));
                         return;
                     }
+                    players.Clear();
                     Teleport(originPlayer, targetPlayer);
                     p.Reply(_("AdminTPPlayers", player, originPlayer.displayName, targetPlayer.displayName));
                     PrintMsgL(originPlayer, "AdminTPConsoleTPPlayer", targetPlayer.displayName);
@@ -4588,6 +4436,11 @@ namespace Oxide.Plugins
             return null;
         }
 
+        private bool belowGround(Vector3 a, Vector3 b)
+        {
+            return a.y < TerrainMeta.HeightMap.GetHeight(b);
+        }
+
         private string NearCave(BasePlayer player)
         {
             foreach (var entry in caves)
@@ -4595,7 +4448,7 @@ namespace Oxide.Plugins
                 string caveName = entry.Key.Contains(":") ? entry.Key.Substring(0, entry.Key.LastIndexOf(":")) : entry.Key;
                 float realdistance = entry.Key.Contains("Small") ? config.Settings.CaveDistanceSmall : entry.Key.Contains("Medium") ? config.Settings.CaveDistanceMedium : config.Settings.CaveDistanceLarge;
 
-                if (Vector3Ex.Distance2D(player.transform.position, entry.Value) < realdistance + 50f)
+                if (Vector3.Distance(player.transform.position, entry.Value) < realdistance + 50f && !belowGround(player.transform.position, entry.Value))
                 {
 #if DEBUG
                     Puts($"NearCave: {caveName} nearby.");
@@ -4605,7 +4458,7 @@ namespace Oxide.Plugins
                 else
                 {
 #if DEBUG
-                    Puts("NearCave: Not near this cave.");
+                    Puts("NearCave: Not near this cave, or above it.");
 #endif
                 }
             }
@@ -4729,8 +4582,9 @@ namespace Oxide.Plugins
 
             if (config.Settings.BlockZoneFlag && ZoneManager != null)
             {
-                bool flag = ZoneManager.Call<bool>("PlayerHasFlag", player, "notp");
-                if (flag)
+                var success = ZoneManager?.Call("PlayerHasFlag", player, "notp");
+
+                if (success is bool && (bool)success)
                 {
                     return "TPFlagZone";
                 }
@@ -4738,8 +4592,9 @@ namespace Oxide.Plugins
 
             if (config.Settings.BlockNoEscape && NoEscape != null)
             {
-                bool flag = NoEscape.Call<bool>("IsBlocked", player);
-                if (flag)
+                var success = NoEscape?.Call("IsBlocked", player);
+
+                if (success is bool && (bool)success)
                 {
                     return "TPNoEscapeBlocked";
                 }
@@ -4752,82 +4607,67 @@ namespace Oxide.Plugins
         {
             // ubb == UsableIntoBuildingBlocked
             // obb == CupOwnerAllowOnBuildingBlocked
-            var colliders = Pool.GetList<Collider>();
-            Vis.Colliders(targetLocation, 0.2f, colliders, buildingLayer);
+            var entities = Pool.GetList<BuildingBlock>();
+            Vis.Entities(targetLocation, 3f, entities, Layers.Mask.Construction, QueryTriggerInteraction.Ignore);
             bool denied = False;
-            bool foundblock = False;
-            int i = 0;
 
-            foreach (var collider in colliders)
+            foreach (var block in entities)
             {
-                // First, check that there is a building block at the target
-                var block = collider.GetComponentInParent<BuildingBlock>();
-                i++;
-                if (block != null)
+                if (CheckCupboardBlock(block, player, obb))
                 {
-                    foundblock = True;
+                    denied = False;
 #if DEBUG
-                    Puts($"Found a block {i.ToString()}");
+                    Puts("Cupboard either owned or there is no cupboard");
 #endif
-                    if (foundblock)
-                    {
-                        if (CheckCupboardBlock(block, player, obb))
-                        {
-                            denied = False;
+                }
+                else if (ubb && (player.userID != block.OwnerID))
+                {
+                    denied = False;
 #if DEBUG
-                            Puts("Cupboard either owned or there is no cupboard");
+                    Puts("Player does not own block, but UsableIntoBuildingBlocked=true");
 #endif
-                        }
-                        else if (ubb && (player.userID != block.OwnerID))
-                        {
-                            denied = False;
+                }
+                else if (player.userID == block.OwnerID)
+                {
 #if DEBUG
-                            Puts("Player does not own block, but UsableIntoBuildingBlocked=true");
-#endif
-                        }
-                        else if (player.userID == block.OwnerID)
-                        {
-#if DEBUG
-                            Puts("Player owns block");
+                    Puts("Player owns block");
 #endif
 
-                            if (!player.IsBuildingBlocked(targetLocation, new Quaternion(), block.bounds))
-                            {
+                    if (!player.IsBuildingBlocked(targetLocation, new Quaternion(), block.bounds))
+                    {
 #if DEBUG
-                                Puts("Player not BuildingBlocked. Likely unprotected building.");
+                        Puts("Player not BuildingBlocked. Likely unprotected building.");
 #endif
-                                denied = False;
-                                break;
-                            }
-                            else if (ubb)
-                            {
+                        denied = False;
+                        break;
+                    }
+                    else if (ubb)
+                    {
 #if DEBUG
-                                Puts("Player not blocked because UsableIntoBuildingBlocked=true");
+                        Puts("Player not blocked because UsableIntoBuildingBlocked=true");
 #endif
-                                denied = False;
-                                break;
-                            }
-                            else
-                            {
+                        denied = False;
+                        break;
+                    }
+                    else
+                    {
 #if DEBUG
-                                Puts("Player owns block but blocked by UsableIntoBuildingBlocked=false");
+                        Puts("Player owns block but blocked by UsableIntoBuildingBlocked=false");
 #endif
-                                denied = True;
-                                break;
-                            }
-                        }
-                        else
-                        {
-#if DEBUG
-                            Puts("Player blocked");
-#endif
-                            denied = True;
-                            break;
-                        }
+                        denied = True;
+                        break;
                     }
                 }
+                else
+                {
+#if DEBUG
+                    Puts("Player blocked");
+#endif
+                    denied = True;
+                    break;
+                }
             }
-            Pool.FreeList(ref colliders);
+            Pool.FreeList(ref entities);
 
             return denied ? "TPTargetBuildingBlocked" : null;
         }
@@ -4836,7 +4676,7 @@ namespace Oxide.Plugins
         private bool CheckCupboardBlock(BuildingBlock block, BasePlayer player, bool obb)
         {
             // obb == CupOwnerAllowOnBuildingBlocked
-            BuildingManager.Building building = block.GetBuilding();
+            var building = block.GetBuilding();
             if (building != null)
             {
 #if DEBUG
@@ -4847,15 +4687,14 @@ namespace Oxide.Plugins
                 if (building.buildingPrivileges == null)
                 {
 #if DEBUG
-                    Puts("No cupboard found, returning player.IsBuildingBlocked"); // Puts("Player has no privileges");
+                    Puts("No cupboard found, allowing teleport");
 #endif
-                    return player.IsBuildingBlocked(block.transform.position, new Quaternion(), block.bounds); // False
+                    return player.CanBuild();
                 }
 
-                ulong hitEntityOwnerID = block.OwnerID != 0 ? block.OwnerID : 0;
-                foreach (var privs in building.buildingPrivileges)
+                foreach (var priv in building.buildingPrivileges)
                 {
-                    if (CupboardAuthCheck(privs, hitEntityOwnerID))
+                    if (priv.IsAuthed(player))
                     {
                         // player is authorized to the cupboard
 #if DEBUG
@@ -4863,7 +4702,11 @@ namespace Oxide.Plugins
 #endif
                         return True;
                     }
-                    else if (obb && player.userID == hitEntityOwnerID)
+                }
+
+                if (player.userID == block.OwnerID)
+                {
+                    if (obb)
                     {
 #if DEBUG
                         // player set the cupboard and is allowed in by config
@@ -4871,42 +4714,17 @@ namespace Oxide.Plugins
 #endif
                         return True;
                     }
-                    else if (player.userID == hitEntityOwnerID)
-                    {
 #if DEBUG
-                        // player set the cupboard but is blocked by config
-                        Puts("Player owns cupboard with no auth, but blocked by CupOwnerAllowOnBuildingBlocked=false");
+                    // player set the cupboard but is blocked by config
+                    Puts("Player owns cupboard with no auth, but blocked by CupOwnerAllowOnBuildingBlocked=false");
 #endif
-                        return False;
-                    }
+                    return False;
                 }
-#if DEBUG
-                Puts("Building found but there was no auth.");
-#endif
-                return False;
             }
 #if DEBUG
             Puts("No cupboard or building found - we cannot tell the status of this block");
 #endif
             return True;
-        }
-
-        private bool CupboardAuthCheck(BuildingPrivlidge priv, ulong hitEntityOwnerID)
-        {
-            foreach (var auth in priv.authorizedPlayers.Select(x => x.userid).ToArray())
-            {
-                if (auth == hitEntityOwnerID)
-                {
-#if DEBUG
-                    Puts("Player has auth");
-#endif
-                    return True;
-                }
-            }
-#if DEBUG
-            Puts("Found no auth");
-#endif
-            return False;
         }
 
         private string CheckInsideBlock(Vector3 targetLocation)
@@ -4930,12 +4748,10 @@ namespace Oxide.Plugins
         {
             foreach (var blockedItem in ReverseBlockedItems)
             {
-                if (player.inventory.containerMain.GetAmount(blockedItem.Key, True) > 0)
+                if (player.inventory.FindItemID(blockedItem.Key) != null)
+                {
                     return blockedItem.Value;
-                if (player.inventory.containerBelt.GetAmount(blockedItem.Key, True) > 0)
-                    return blockedItem.Value;
-                if (player.inventory.containerWear.GetAmount(blockedItem.Key, True) > 0)
-                    return blockedItem.Value;
+                }
             }
             return null;
         }
@@ -4956,25 +4772,25 @@ namespace Oxide.Plugins
             if (config.Home.AllowAboveFoundation) // Can set on a foundation or floor
             {
 #if DEBUG
-                Puts($"CheckFoundation() looking for foundation or floor at {position.ToString()}");
+                Puts($"CheckFoundation() looking for foundation or floor at {position}");
 #endif
                 entities = GetFoundationOrFloor(position);
             }
             else // Can only use foundation, not floor/ceiling
             {
 #if DEBUG
-                Puts($"CheckFoundation() looking for foundation at {position.ToString()}");
+                Puts($"CheckFoundation() looking for foundation at {position}");
 #endif
                 entities = GetFoundation(position);
             }
 
+            entities.RemoveAll(x => !x.IsValid() || x.IsDestroyed);
             if (entities.Count == 0) return "HomeNoFoundation";
 
             if (!config.Home.CheckFoundationForOwner) return null;
             for (var i = 0; i < entities.Count; i++)
             {
-                if (entities[i].OwnerID == userID) return null;
-                else if (IsFriend(userID, entities[i].OwnerID)) return null;
+                if (entities[i].OwnerID == userID || IsFriend(userID, entities[i].OwnerID)) return null;
             }
 
             return "HomeFoundationNotFriendsOwned";
@@ -5001,7 +4817,7 @@ namespace Oxide.Plugins
         // playerid = active player, ownerid = owner of building block, who may be offline
         bool IsFriend(ulong playerid, ulong ownerid)
         {
-            if (config.Home.UseFriends && Friends != null)
+            if (config.Home.UseFriends && Friends != null && Friends.IsLoaded)
             {
 #if DEBUG
                 Puts("Checking Friends...");
@@ -5015,14 +4831,14 @@ namespace Oxide.Plugins
                     return True;
                 }
             }
-            if (config.Home.UseClans && Clans != null)
+            if (config.Home.UseClans && Clans != null && Clans.IsLoaded)
             {
 #if DEBUG
                 Puts("Checking Clans...");
 #endif
                 string playerclan = (string)Clans?.CallHook("GetClanOf", playerid);
                 string ownerclan = (string)Clans?.CallHook("GetClanOf", ownerid);
-                if (playerclan == ownerclan && playerclan != null && ownerclan != null)
+                if (playerclan != null && ownerclan != null && playerclan == ownerclan)
                 {
 #if DEBUG
                     Puts("  IsFriend: true based on Clans plugin");
@@ -5071,20 +4887,20 @@ namespace Oxide.Plugins
                 if (wall.name.Contains("external.high"))
                 {
 #if DEBUG
-                    Puts($"    Found: {wall.name} @ center {center.ToString()}, pos {position.ToString()}");
+                    Puts($"    Found: {wall.name} @ center {center}, pos {position}");
 #endif
                     return False;
                 }
             }
 #if DEBUG
-            Puts($"  Checking block: {entity.name} @ center {center.ToString()}, pos: {position.ToString()}");
+            Puts($"  Checking block: {entity.name} @ center {center}, pos: {position.ToString()}");
 #endif
             if (entity.PrefabName.Contains("triangle.prefab"))
             {
                 if (Math.Abs(center.x - position.x) < 0.45f && Math.Abs(center.z - position.z) < 0.45f)
                 {
 #if DEBUG
-                    Puts($"    Found: {entity.ShortPrefabName} @ center: {center.ToString()}, pos: {position.ToString()}");
+                    Puts($"    Found: {entity.ShortPrefabName} @ center: {center}, pos: {position}");
 #endif
                     return True;
                 }
@@ -5094,7 +4910,7 @@ namespace Oxide.Plugins
                 if (Math.Abs(center.x - position.x) < 0.7f && Math.Abs(center.z - position.z) < 0.7f)
                 {
 #if DEBUG
-                    Puts($"    Found: {entity.ShortPrefabName} @ center: {center.ToString()}, pos: {position.ToString()}");
+                    Puts($"    Found: {entity.ShortPrefabName} @ center: {center}, pos: {position}");
 #endif
                     return True;
                 }
@@ -5108,7 +4924,7 @@ namespace Oxide.Plugins
             RaycastHit hitinfo;
             var entities = new List<BuildingBlock>();
 
-            if (Physics.Raycast(position, Down, out hitinfo, 0.2f, blockLayer))
+            if (Physics.Raycast(position, Down, out hitinfo, 0.25f, blockLayer) && hitinfo.GetEntity().IsValid())
             {
                 var entity = hitinfo.GetEntity();
                 if (entity.PrefabName.Contains("foundation") || position.y < entity.WorldSpaceBounds().ToBounds().max.y)
@@ -5137,10 +4953,11 @@ namespace Oxide.Plugins
             RaycastHit hitinfo;
             var entities = new List<BuildingBlock>();
 
-            if (Physics.Raycast(position, Down, out hitinfo, 0.11f, blockLayer))
+            if (Physics.Raycast(position, Down, out hitinfo, 0.25f, Layers.Mask.Construction, QueryTriggerInteraction.Ignore) && hitinfo.GetEntity().IsValid())
             {
                 var entity = hitinfo.GetEntity();
-                if (entity.PrefabName.Contains("floor"))
+
+                if (entity.IsValid() && entity.PrefabName.Contains("floor"))
                 {
 #if DEBUG
                     Puts($"  GetFloor() found {entity.PrefabName} at {entity.transform.position}");
@@ -5163,7 +4980,7 @@ namespace Oxide.Plugins
             RaycastHit hitinfo;
             var entities = new List<BuildingBlock>();
 
-            if (Physics.Raycast(position, Down, out hitinfo, 0.11f, blockLayer))
+            if (Physics.Raycast(position, Down, out hitinfo, 0.25f, blockLayer) && hitinfo.GetEntity().IsValid())
             {
                 var entity = hitinfo.GetEntity();
                 if (entity.PrefabName.Contains("floor") || entity.PrefabName.Contains("foundation"))// || position.y < entity.WorldSpaceBounds().ToBounds().max.y))
@@ -5414,6 +5231,7 @@ namespace Oxide.Plugins
             if (targets.Count > 1)
             {
                 PrintMsgL(player, "MultiplePlayers", string.Join(", ", targets.Select(p => p.displayName).ToArray()));
+                targets.Clear();
                 return 0;
             }
             ulong userId;
@@ -5425,6 +5243,7 @@ namespace Oxide.Plugins
             }
             else
                 userId = targets.First().userID;
+            targets.Clear();
             return userId;
         }
 
@@ -5439,48 +5258,24 @@ namespace Oxide.Plugins
             if (targets.Count > 1)
             {
                 PrintMsgL(player, "MultiplePlayers", string.Join(", ", targets.Select(p => p.displayName).ToArray()));
+                targets.Clear();
                 return null;
             }
-            return targets.First();
+            var t = targets.First();
+            targets.Clear();
+            return t;
         }
 
-        private static HashSet<BasePlayer> FindPlayers(string nameOrIdOrIp)
+        private static List<BasePlayer> FindPlayers(string nameOrIdOrIp)
         {
-            var players = new HashSet<BasePlayer>();
-            if (string.IsNullOrEmpty(nameOrIdOrIp)) return players;
-            foreach (var activePlayer in BasePlayer.activePlayerList)
-            {
-                if (activePlayer.UserIDString.Equals(nameOrIdOrIp))
-                    players.Add(activePlayer);
-                else if (!string.IsNullOrEmpty(activePlayer.displayName) && activePlayer.displayName.Contains(nameOrIdOrIp, CompareOptions.IgnoreCase))
-                    players.Add(activePlayer);
-                else if (activePlayer.net?.connection != null && activePlayer.net.connection.ipaddress.Equals(nameOrIdOrIp))
-                    players.Add(activePlayer);
-            }
-            foreach (var sleepingPlayer in BasePlayer.sleepingPlayerList)
-            {
-                if (sleepingPlayer.UserIDString.Equals(nameOrIdOrIp))
-                    players.Add(sleepingPlayer);
-                else if (!string.IsNullOrEmpty(sleepingPlayer.displayName) && sleepingPlayer.displayName.Contains(nameOrIdOrIp, CompareOptions.IgnoreCase))
-                    players.Add(sleepingPlayer);
-            }
-            return players;
+            if (string.IsNullOrEmpty(nameOrIdOrIp)) return new List<BasePlayer>();
+            return BasePlayer.allPlayerList.Where(p => p && (p.UserIDString == nameOrIdOrIp || p.displayName.Contains(nameOrIdOrIp, CompareOptions.OrdinalIgnoreCase) || (p.IsConnected && p.net.connection.ipaddress.Contains(nameOrIdOrIp)))).ToList();
         }
 
         private static List<BasePlayer> FindPlayersOnline(string nameOrIdOrIp)
         {
-            var players = new List<BasePlayer>();
-            if (string.IsNullOrEmpty(nameOrIdOrIp)) return players;
-            foreach (var activePlayer in BasePlayer.activePlayerList)
-            {
-                if (activePlayer.UserIDString.Equals(nameOrIdOrIp))
-                    players.Add(activePlayer);
-                else if (!string.IsNullOrEmpty(activePlayer.displayName) && activePlayer.displayName.Contains(nameOrIdOrIp, CompareOptions.IgnoreCase))
-                    players.Add(activePlayer);
-                else if (activePlayer.net?.connection != null && activePlayer.net.connection.ipaddress.Equals(nameOrIdOrIp))
-                    players.Add(activePlayer);
-            }
-            return players;
+            if (string.IsNullOrEmpty(nameOrIdOrIp)) return new List<BasePlayer>();
+            return BasePlayer.activePlayerList.Where(p => p.UserIDString == nameOrIdOrIp || p.displayName.Contains(nameOrIdOrIp, CompareOptions.OrdinalIgnoreCase) || (p.IsConnected && p.net.connection.ipaddress.Contains(nameOrIdOrIp))).ToList();
         }
         #endregion
 
