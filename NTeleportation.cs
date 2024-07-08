@@ -22,7 +22,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.7.9")]
+    [Info("NTeleportation", "nivex", "1.8.0")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -3517,7 +3517,7 @@ namespace Oxide.Plugins
                         var loc = GetAdminLocation(args[1]);
                         if (loc != Vector3.zero)
                         {
-                            Teleport(origin, loc, "", target.userID, false, IsAllowed(origin, PermTp));
+                            Teleport(origin, loc, "", target.userID, town: false, allowTPB: true, build: true, craft: true);
                             return;
                         }
                     }
@@ -3637,7 +3637,7 @@ namespace Oxide.Plugins
                     var destination = target.transform.position;
                     destination.x -= x;
                     destination.z -= z;
-                    Teleport(player, GetGroundBuilding(destination), "", target.userID, false,true);
+                    Teleport(player, GetGroundBuilding(destination), "", target.userID, town: false, allowTPB: true, build: true, craft: true);
                     PrintMsgL(player, "AdminTP", target.displayName);
                     Puts(_("LogTeleport", null, player.displayName, target.displayName));
                     if (config.Admin.AnnounceTeleportToTarget)
@@ -3673,7 +3673,7 @@ namespace Oxide.Plugins
                         PrintMsgL(player, "LocationNotFound");
                         return;
                     }
-                    Teleport(player, loc, args[0], 0uL, false, true);
+                    Teleport(player, loc, args[0], 0uL, town: false, allowTPB: true, build: true, craft: true);
                     PrintMsgL(player, "AdminTPLocation", args[0]);
                     break;
                 default:
@@ -3692,11 +3692,9 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "SyntaxCommandTPSave");
                 return;
             }
-            AdminData adminData;
-            if (!_Admin.TryGetValue(player.userID, out adminData))
+            if (!_Admin.TryGetValue(player.userID, out var adminData))
                 _Admin[player.userID] = adminData = new AdminData();
-            Vector3 location;
-            if (adminData.Locations.TryGetValue(args[0], out location))
+            if (adminData.Locations.TryGetValue(args[0], out var location))
             {
                 PrintMsgL(player, "LocationExists", location);
                 return;
@@ -3728,8 +3726,7 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "SyntaxCommandTPRemove");
                 return;
             }
-            AdminData adminData;
-            if (!_Admin.TryGetValue(player.userID, out adminData) || adminData.Locations.Count <= 0)
+            if (!_Admin.TryGetValue(player.userID, out var adminData) || adminData.Locations.Count <= 0)
             {
                 PrintMsgL(player, "AdminLocationListEmpty");
                 return;
@@ -3753,8 +3750,7 @@ namespace Oxide.Plugins
                 PrintMsgL(player, "SyntaxCommandTPB");
                 return;
             }
-            AdminData adminData;
-            if (!_Admin.TryGetValue(player.userID, out adminData) || adminData.PreviousLocation == Vector3.zero)
+            if (!_Admin.TryGetValue(player.userID, out var adminData) || adminData.PreviousLocation == Vector3.zero)
             {
                 PrintMsgL(player, "NoPreviousLocationSaved");
                 return;
@@ -3789,7 +3785,7 @@ namespace Oxide.Plugins
                 TeleportBack(player, adminData, countdown);
                 return;
             }
-            Teleport(player, adminData.PreviousLocation, adminData.Home, adminData.UserID, adminData.Town, false);
+            Teleport(player, adminData.PreviousLocation, adminData.Home, adminData.UserID, adminData.Town, allowTPB: false, build: adminData.BuildingBlocked, craft: adminData.AllowCrafting);
             adminData.PreviousLocation = Vector3.zero;
             changedAdmin = true;
             PrintMsgL(player, "AdminTPBack");
@@ -3850,7 +3846,7 @@ namespace Oxide.Plugins
                             return;
                         }
                     }
-                    Teleport(player, location, adminData.Home, adminData.UserID, adminData.Town, false);
+                    Teleport(player, location, adminData.Home, adminData.UserID, adminData.Town, false, adminData.BuildingBlocked, adminData.AllowCrafting);
                     adminData.PreviousLocation = Vector3.zero;
                     changedAdmin = true;
                     PrintMsgL(player, "AdminTPBack");
@@ -4168,14 +4164,12 @@ namespace Oxide.Plugins
             }
             var userId = FindPlayersSingleId(args[0], player);
             if (userId <= 0) return;
-            HomeData targetHome;
-            HomeData.Entry homeEntry;
-            if (!_Home.TryGetValue(userId, out targetHome) || !targetHome.TryGetValue(args[1], out homeEntry))
+            if (!_Home.TryGetValue(userId, out var targetHome) || !targetHome.TryGetValue(args[1], out var homeEntry))
             {
                 PrintMsgL(player, "HomeNotFound");
                 return;
             }
-            Teleport(player, homeEntry.Get(), "", userId, false, true);
+            Teleport(player, homeEntry.Get(), "", userId, town: false, allowTPB: true, build: true, craft: true);
             PrintMsgL(player, "HomeAdminTP", args[0], args[1]);
         }
 
@@ -4530,7 +4524,7 @@ namespace Oxide.Plugins
                             }
                         }
                     }
-                    Teleport(player, position, args[0], 0uL, config.Home.AllowTPB, config.Home.UsableOutOfBuildingBlocked, CanCraftHome(player));
+                    Teleport(player, position, args[0], 0uL, town: false, allowTPB: config.Home.AllowTPB, build: config.Home.UsableOutOfBuildingBlocked, craft: CanCraftHome(player));
                     homeData.Teleports.Amount++;
                     homeData.Teleports.Timestamp = timestamp;
                     changedHome = true;
@@ -5161,7 +5155,7 @@ namespace Oxide.Plugins
                         }
                     }
                     SendDiscordMessage(originPlayer, player);
-                    Teleport(originPlayer, player.transform.position, "", player.userID, config.TPR.AllowTPB, config.TPR.UsableOutOfBuildingBlocked, CanCraftTPR(player));
+                    Teleport(originPlayer, player.transform.position, "", player.userID, town: false, allowTPB: config.TPR.AllowTPB, build: config.TPR.UsableOutOfBuildingBlocked, craft: CanCraftTPR(player));
                     var tprData = _TPR[originPlayer.userID];
                     tprData.Amount++;
                     tprData.Timestamp = timestamp;
@@ -5660,7 +5654,7 @@ namespace Oxide.Plugins
             int limit = 0;
             var timestamp = Facepunch.Math.Epoch.Current;
             var currentDate = DateTime.Now.ToString("d");
-
+            var mode = command == "bandit" ? "bandit" : command == "outpost" ? "outpost" : "town";
             // Setup vars for checks below
             string err = null;
             if (!CanBypassRestrictions(player.UserIDString))
@@ -5671,7 +5665,7 @@ namespace Oxide.Plugins
                     PrintMsgL(player, "NotUseable", FormatTime(player, getUseableTime));
                     return;
                 }
-                err = CheckPlayer(player, settings.UsableOutOfBuildingBlocked, settings.CanCraft(player, command), true, "town");
+                err = CheckPlayer(player, settings.UsableOutOfBuildingBlocked, settings.CanCraft(player, command), true, mode);
                 if (err != null)
                 {
                     PrintMsgL(player, err);
@@ -5821,7 +5815,7 @@ namespace Oxide.Plugins
                             PrintMsgL(player, "CannotTeleportFromHome");
                             return;
                         }
-                        err = CheckPlayer(player, settings.UsableOutOfBuildingBlocked, settings.CanCraft(player, command.ToLower()), true, "town", settings.AllowCave);
+                        err = CheckPlayer(player, settings.UsableOutOfBuildingBlocked, settings.CanCraft(player, command.ToLower()), true, mode, settings.AllowCave);
                         if (err != null)
                         {
                             Interrupt(player, paidmoney, settings.Bypass);
@@ -5870,7 +5864,7 @@ namespace Oxide.Plugins
                             }
                         }
                     }
-                    Teleport(player, location, command, 0uL, true, settings.AllowTPB, settings.UsableOutOfBuildingBlocked, settings.CanCraft(player, command));
+                    Teleport(player, location, command, 0uL, town: true, allowTPB: settings.AllowTPB, build: settings.UsableOutOfBuildingBlocked, craft: settings.CanCraft(player, command));
                     teleportData.Amount++;
                     teleportData.Timestamp = timestamp;
                     settings.Teleports.Changed = true;
@@ -6127,9 +6121,9 @@ namespace Oxide.Plugins
 
         #region Teleport
 
-        public void Teleport(BasePlayer player, BasePlayer target, bool build = true, bool craft = true) => Teleport(player, target.transform.position, "", target.userID, true, build, craft);
+        public void Teleport(BasePlayer player, BasePlayer target, bool build = true, bool craft = true) => Teleport(player, target.transform.position, "", target.userID, town: false, allowTPB: true, build: build, craft: craft);
 
-        public void Teleport(BasePlayer player, float x, float y, float z, bool build = true, bool craft = true) => Teleport(player, new Vector3(x, y, z), "", 0uL, true, build, craft);
+        public void Teleport(BasePlayer player, float x, float y, float z, bool build = true, bool craft = true) => Teleport(player, new Vector3(x, y, z), "", 0uL, town: false, allowTPB: true, build: build, craft: craft);
 
         [HookMethod("Teleport")]
         public void Teleport(BasePlayer player, Vector3 newPosition, string home, ulong uid, bool town, bool allowTPB, bool build = true, bool craft = true)
@@ -7240,8 +7234,7 @@ namespace Oxide.Plugins
             }
             if (teleportCounts[key] >= config.TPR.Discord.TPA)
             {
-                //string message = _("DiscordLogTPA", null, $"{target.displayName} ({target.userID})", $"{player.displayName} ({player.userID})", teleportCounts[key]);
-                string message = $"{target.displayName} ({target.userID}) and {player.displayName} ({player.userID}) accepted TPA {teleportCounts[key]} times";
+                string message = _("DiscordLogTPA", null, $"{target.displayName} ({target.userID})", $"{player.displayName} ({player.userID})", teleportCounts[key]);
                 discordMessages.Add(message);
                 if (discordMessages.Count == 1)
                 {
