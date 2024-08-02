@@ -22,7 +22,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.8.0")]
+    [Info("NTeleportation", "nivex", "1.8.1")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -95,9 +95,11 @@ namespace Oxide.Plugins
             public Matrix4x4 m;
             public string name;
             public string prefab;
+            public bool sphere;
             public MonumentInfoEx() { }
-            public MonumentInfoEx(Vector3 position, Quaternion rotation, Vector3 extents, float extra, string name, string prefab)
+            public MonumentInfoEx(Vector3 position, Quaternion rotation, Vector3 extents, float extra, string name, string prefab, bool sphere)
             {
+                this.sphere = sphere;
                 this.position = position;
                 this.rotation = rotation;
                 this.name = name;
@@ -107,6 +109,11 @@ namespace Oxide.Plugins
             }
             public bool IsInBounds(Vector3 a)
             {
+                if (sphere)
+                {
+                    return Vector3.Distance(a, position) <= extents.Max();
+                }
+
                 Vector3 v = m.inverse.MultiplyPoint3x4(a);
 
                 return v.x <= extents.x && v.x > -extents.x && v.y <= extents.y && v.y > -extents.y && v.z <= extents.z && v.z > -extents.z;
@@ -201,7 +208,7 @@ namespace Oxide.Plugins
             {
                 player.unHostileTime = UnityEngine.Time.realtimeSinceStartup;
             }
-            
+
             return new BasePlayer.SpawnPoint { pos = settings.Location, rot = Quaternion.identity };
         }
 
@@ -750,7 +757,7 @@ namespace Oxide.Plugins
             catch (JsonException ex)
             {
                 canSaveConfig = false;
-                Debug.LogException(ex);
+                Puts(ex.ToString());
                 LoadDefaultConfig();
             }
             config.Settings.ReappearEffects.Remove("");
@@ -1093,6 +1100,7 @@ namespace Oxide.Plugins
                 {"TPRLimitReached", "You have reached the daily limit of {0} teleport requests today!"},
                 {"TPRAmount", "You have {0} teleport requests left today!"},
                 {"TPRTarget", "Your target is currently not available!"},
+                {"TPRNoCeiling", "You cannot teleport while your target is on a ceiling!"},
                 {"TPDead", "You can't teleport while being dead!"},
                 {"TPWounded", "You can't teleport while wounded!"},
                 {"TPTooCold", "You're too cold to teleport!"},
@@ -1538,7 +1546,7 @@ namespace Oxide.Plugins
                 {"AdminTPConsoleTPPlayerTarget", "{0} был телепортирован к вам!"},
                 {"HomeTP", "Вы телепортированы в ваш дом '{0}'!"},
                 {"HomeAdminTP", "Вы телепортированы к дому '{1}' принадлежащему {0}!"},
-                {"HomeIce", "Ви не можете зберегти місце розташування як будинок на крижаному озері!"},
+                {"HomeIce", "Дома на замерзшем озере запрещены!"},
                 {"HomeSave", "Вы сохранили текущее местоположение как ваш дом!"},
                 {"HomeNoFoundation", "Использовать местоположение в качестве дома разрешено только на фундаменте!"},
                 {"HomeFoundationNotOwned", "Вы не можете использовать команду home в чужом доме."},
@@ -1554,7 +1562,7 @@ namespace Oxide.Plugins
                 {"HomeListEmpty", "Вы не сохранили ни одного дома!"},
                 {"HomeMaxLocations", "Невозможно установить здесь ваш дом, вы достигли лимита в {0} домов!"},
                 {"HomeQuota", "Вы установили {0} из {1} максимально возможных домов!"},
-                {"HomeTugboatNotAllowed", "You are not allowed to sethome on tugboats."},
+                {"HomeTugboatNotAllowed", "Установка дома на буксирах запрещена!"},
                 {"HomeTPStarted", "Телепортация в ваш дом {0} через {1} секунд!"},
                 {"PayToTown", "Стандартный платеж {0} распространяется на все телепорты в город!"},
                 {"PayToTPR", "Стандартный платеж {0} распространяется на все tpr'ы!"},
@@ -1606,6 +1614,7 @@ namespace Oxide.Plugins
                 {"TPRLimitReached", "Вы исчерпали ежедневный лимит {0} запросов на телепортацию сегодня!"},
                 {"TPRAmount", "У вас осталось {0} запросов на телепортацию на сегодня!"},
                 {"TPRTarget", "Ваша цель в данный момент не доступна!"},
+                {"TPRNoCeiling", "Вы не можете телепортироваться, пока ваша цель находится на потолке!"},
                 {"TPDead", "Вы не можете телепортироваться, пока мертвы!"},
                 {"TPWounded", "Вы не можете телепортироваться, будучи раненым!"},
                 {"TPTooCold", "Вам слишком холодно для телепортации!"},
@@ -1651,7 +1660,7 @@ namespace Oxide.Plugins
                 {"DM_TownTPRemoved", "Вы удалили команду: <color=yellow>{0}</color>"},
                 {"DM_TownTPDoesNotExist", "Команда не существует: <color=yellow>{0}</color>"},
                 {"DM_TownTPExists", "Команда <color=yellow>{0}</color> уже сущуствует!"},
-                {"DM_TownTPLocationsCleared", "You have cleared all locations for {0}!"},
+                {"DM_TownTPLocationsCleared", "Вы стерли все точки телепорта для {0}!"},
                 {"DM_TownTPStarted", "Телепортация в {0} через {1} секунд!"},
                 {"DM_TownTPCooldown", "Ваш телепорт перезаряжается. Вам необходимо подождать {0} до следующей телепортации."},
                 {"DM_TownTPCooldownBypass", "Ваш телепорт был на перезарядке. Вы выбрали избежать ожидания, оплатив {0} с вашего баланса."},
@@ -1789,8 +1798,8 @@ namespace Oxide.Plugins
                 {"NotValidTPTFriend", " друг!"},
                 {"NotValidTPTTeam", " в вашей команде!"},
                 {"NotValidTPTClan", " в вашем клане!"},
-                // TODO: Fix not being in Russian.
-                {"TPTInfo", "{4} auto accepts teleport requests.\n<color={5}>Green</color> = <color={5}>Enabled</color>\n<color={6}>Red</color> = <color={6}>Disabled</color>\n\n/{0} <color={1}>clan</color> - Toggle {4} for clan members/allies.\n/{0} <color={2}>team</color> - Toggle {4} for teammates.\n/{0} <color={3}>friend</color> - Toggle {4} for friends."},
+
+                {"TPTInfo", "{4} это авто-принятие запросов на телепортацию.\n<color={5}>Зелёный</color> = <color={5}>Включено</color>\n<color={6}>Красный</color> = <color={6}>Выключено</color>\n\n/{0} <color={1}>clan</color> - Включение/выключение {4} для членов клана или союзников.\n/{0} <color={2}>team</color> - Включение/выключение {4} для членов группы.\n/{0} <color={3}>friend</color> - Включение/выключение {4} для друзей."},
                 {"PlayerNotFound", "Указанный игрок не обнаружен, пожалуйста попробуйте ещё раз!"},
                 {"MultiplePlayers", "Найдено несколько игроков: {0}"},
                 {"CantTeleportToSelf", "Вы не можете телепортироваться к самому себе!"},
@@ -2049,7 +2058,7 @@ namespace Oxide.Plugins
                 {"AdminTPConsoleTPPlayerTarget", "{0} був телепортований до вас!"},
                 {"HomeTP", "Ви телепортовані до вашого будинку '{0}'!"},
                 {"HomeAdminTP", "Ви телепортовані до будинку '{1}', що належить {0}!"},
-                {"HomeIce", "Вы не можете сохранить местоположение в качестве дома на ледяном озере!"},
+                {"HomeIce", "Ви не можете зберегти місце розташування як будинок на крижаному озері!"},
                 {"HomeSave", "Ви зберегли поточне розташування як ваш будинок!"},
                 {"HomeNoFoundation", "Використовувати місцезнаходження як будинок дозволено тільки на фундаменті!"},
                 {"HomeFoundationNotOwned", "Ви не можете використовувати команду home у чужому домі."},
@@ -2117,6 +2126,7 @@ namespace Oxide.Plugins
                 {"TPRLimitReached", "Ви вичерпали щоденний ліміт {0} запитів на телепортацію сьогодні!"},
                 {"TPRAmount", "У вас залишилось {0} запитів на телепортацію на сьогодні!"},
                 {"TPRTarget", "Ваша мета зараз не доступна!"},
+                {"TPRNoCeiling", "Ви не можете телепортуватися, поки ваша ціль знаходиться на стелі!"},
                 {"TPDead", "Ви не можете телепортуватися, поки мертві!"},
                 {"TPWounded", "Ви не можете телепортуватися, будучи пораненим!"},
                 {"TPTooCold", "Вам надто холодно для телепортації!"},
@@ -3153,6 +3163,7 @@ namespace Oxide.Plugins
                     continue;
                 }
                 var position = monument.transform.position;
+                var rotation = monument.transform.rotation;
                 var name = monument.displayPhrase.english.Trim();
                 if (string.IsNullOrEmpty(name))
                 {
@@ -3188,7 +3199,7 @@ namespace Oxide.Plugins
                 }
                 else
                 {
-                    yield return CalculateMonumentSize(position, monument.transform.rotation, monument.Bounds, string.IsNullOrEmpty(name) ? monument.name : name, monument.name);
+                    yield return CalculateMonumentSize(position, rotation, monument.Bounds, string.IsNullOrEmpty(name) ? monument.name : name, monument.name);
                 }
             }
             _cmcCompleted = true;
@@ -3224,7 +3235,7 @@ namespace Oxide.Plugins
                 Vis.Entities(monument.transform.position, radius, ents);
                 foreach (BaseEntity entity in ents)
                 {
-                    if (config.Settings.BlockedPrefabs.Contains(entity.ShortPrefabName) || config.Settings.BlockedPrefabs.Contains(entity.GetType().Name))
+                    if (entity.IsDestroyed || config.Settings.BlockedPrefabs.Contains(entity.ShortPrefabName) || config.Settings.BlockedPrefabs.Contains(entity.GetType().Name))
                     {
                         continue;
                     }
@@ -3243,7 +3254,7 @@ namespace Oxide.Plugins
                     }
                     else if (entity is BaseChair)
                     {
-                        outpost.Location = entity.transform.position + entity.transform.right + new Vector3(0f, 1f, 0f);
+                        outpost.Location = (entity.transform.position + new Vector3(0f, 0.1f)) + entity.transform.right + new Vector3(0f, 1f, 0f);
                         if (!outpost.Locations.Contains(outpost.Location)) outpost.Locations.Add(outpost.Location);
                         changedOutpost = true;
 #if DEBUG
@@ -3297,7 +3308,7 @@ namespace Oxide.Plugins
                 Vis.Entities(monument.transform.position, radius, ents);
                 foreach (BaseEntity entity in ents)
                 {
-                    if (entity.OwnerID.IsSteamId() || OutOfRange(monument, entity.transform.position, entity is BaseChair))
+                    if (entity.IsDestroyed || entity.OwnerID.IsSteamId() || OutOfRange(monument, entity.transform.position, entity is BaseChair))
                     {
                         continue;
                     }
@@ -3312,7 +3323,7 @@ namespace Oxide.Plugins
                     }
                     else if (entity is BaseChair)
                     {
-                        bandit.Location = entity.transform.position + entity.transform.forward + new Vector3(0f, 1f, 0f);
+                        bandit.Location = (entity.transform.position + new Vector3(0f, 0.1f)) + entity.transform.forward + new Vector3(0f, 1f, 0f);
                         if (!bandit.Locations.Contains(bandit.Location)) bandit.Locations.Add(bandit.Location);
                         changedBandit = true;
 #if DEBUG
@@ -3336,28 +3347,72 @@ namespace Oxide.Plugins
             yield return null;
         }
 
-        public IEnumerator CalculateMonumentSize(Vector3 from, Quaternion rot, Bounds b, string text, string prefab)
+        private T GetColliderFrom<T>(T expected, Vector3 a, string text) where T : Collider
         {
-            int checks = 0;
-            float radius = 15f;
-            bool hasTopology = false;
-            if (text == "Airfield" || text == "Harbor" || text == "Launch Site")
+            List<T> colliders = Pool.GetList<T>();
+            Vis.Colliders<T>(a, 5f, colliders, Layers.Mask.Prevent_Building, QueryTriggerInteraction.Collide);
+            if (expected != null && colliders.Contains(expected))
             {
-                goto exit;
+                Pool.FreeList(ref  colliders);
+                return expected;
             }
+            T collider = null;
+            float dist = float.MaxValue;
+            foreach (var col in colliders)
+            {
+                float distance = Vector3.Distance(a, col.ClosestPoint(a));
+                if (collider == null || distance < dist)
+                {
+                    dist = distance;
+                    collider = col;
+                }
+            }
+            Pool.FreeList(ref colliders);
+            return collider;
+        }
+
+        public IEnumerator CalculateMonumentSize(Vector3 from, Quaternion rot, Bounds b, string text, string prefab) // very expensive but only called on server startup
+        {
+            Collider colliderFrom = GetColliderFrom<Collider>(null, from, text);
+            bool sphere = colliderFrom is SphereCollider; // we want to maintain the shape (a sphere or box) so that we don't exceed the bounds
+            int checks = 0;
+            float x = 0f;
+            float z = 0f;
+            float radius = b == default ? 15f : b.extents.x;
+            bool hasTopology = false;
             if (text == "Substation")
             {
-                radius = 25f;
+                x = 25f;
+                z = 25f;
                 goto exit;
             }
+            if (text == "Launch Site") // the monument's position causes the extents to overlap into pavement. easy realignment so that players have the least amount of distance to travel between all sides in order to teleport
+            {
+                from.x += 25f;
+                from.z -= 16f;
+            }
+            List<Vector3> positions = new();
+            Collider colliderTo = null;
             while (radius < World.Size / 2f)
             {
-                int pointsOfTopology = 0;
-                foreach (var to in GetCircumferencePositions(from, radius, 30f))
+                int pointsOfInterest = 0;
+                foreach (var to in GetCardinalPositions(from, rot, radius)) // used to measure distance between the center and the furthest points from it
                 {
-                    if (ContainsTopology(TerrainTopology.Enum.Building | TerrainTopology.Enum.Monument, to, 5f))
+                    if (colliderFrom != null) // best to use the prevent building collider since the bounds of the monument are not equal to it, and  the bounds of the collider is unreliable too
                     {
-                        pointsOfTopology++;
+                        colliderTo = GetColliderFrom<Collider>(colliderFrom, to, text);
+
+                        if (colliderTo != null && colliderTo == colliderFrom)
+                        {
+                            positions.Add(to);
+                            hasTopology = true;
+                            pointsOfInterest = 4;
+                        }
+                    }
+                    else if (ContainsTopology(TerrainTopology.Enum.Building | TerrainTopology.Enum.Monument, to, 5f)) // if this is a custom map then it might not have a prevent building collider
+                    {
+                        positions.Add(to);
+                        pointsOfInterest++;
                         hasTopology = true;
                     }
                     if (++checks >= 25)
@@ -3366,44 +3421,71 @@ namespace Oxide.Plugins
                         checks = 0;
                     }
                 }
-                if (pointsOfTopology < 4)
+                if (pointsOfInterest < 4) // if there is no prevent building collider and no topology then we've exceeded the bounds or this monument has neither
                 {
                     break;
                 }
-                radius += 15f;
+                radius += 5f;
+                if (text == "Abandoned Supermarket" && radius > 150f) Puts("Abandoned Supermarket radius {0}", radius);
+
             }
             if (!hasTopology)
             {
                 radius = 75f;
             }
+            CalculateFurthestDistances(positions, from, out x, out z); // determine the extents of our measurements
         exit:
-            Vector3 extents = b == default ? new(radius, radius, radius) : b.extents;
-            extents = text == "Launch Site" ? (extents * 1.75f) : text == "Airfield" ? (extents) : text == "Harbor" ? (extents * 1.25f) : new(radius, radius, radius);
-            monuments.Add(new MonumentInfoEx(from, rot, extents, config.Admin.ExtraMonumentDistance, text, prefab));
+            float y = Mathf.Min(100f, Mathf.Max(x, z));
+            if (sphere && b != default && x != z && b.extents.x > 0f && b.extents.x < x) 
+            {
+                x = y = z = b.extents.x; // monument is spherical and not centered (Giant Excavator Pit)
+            }
+            if (text == "Launch Site")
+            {
+                x *= 0.8f; //reduce the size as the prevent building collider is very large on vanilla
+                z *= 0.7f;
+            }
+            monuments.Add(new MonumentInfoEx(from, rot, new Vector3(x, y, z), config.Admin.ExtraMonumentDistance, text, prefab, sphere));
 #if DEBUG
-            Puts($"Adding Monument: {text}, pos: {from}, size: {radius}");
+            Puts($"Adding Monument: {text}, pos: {from}, size: {x} {y} {z}");
 #endif
         }
 
-        public List<Vector3> GetCircumferencePositions(Vector3 center, float radius, float next)
+        public static List<Vector3> GetCardinalPositions(Vector3 center, Quaternion rotation, float radius)
         {
-            float degree = 0f;
-            float angleInRadians = 2f * Mathf.PI;
-            List<Vector3> positions = new List<Vector3>();
-
-            while (degree < 360)
+            List<Vector3> positions = new() // use cardinal since using ordinal from the center will exceed the bounds
             {
-                float radian = (angleInRadians / 360) * degree;
-                float x = center.x + radius * Mathf.Cos(radian);
-                float z = center.z + radius * Mathf.Sin(radian);
-                Vector3 a = new Vector3(x, 0f, z);
+                rotation * new Vector3(0f, 0f, radius) + center,
+                rotation * new Vector3(0f, 0f, -radius) + center,
+                rotation * new Vector3(radius, 0f, 0f) + center,
+                rotation * new Vector3(-radius, 0f, 0f) + center
+            };
 
-                positions.Add(a.WithY(TerrainMeta.HeightMap.GetHeight(a)));
+            for (int i = 0; i < positions.Count; i++)
+            {
+                Vector3 a = positions[i];
 
-                degree += next;
+                positions[i] = a.WithY(TerrainMeta.HeightMap.GetHeight(a));
             }
 
             return positions;
+        }
+
+        public void CalculateFurthestDistances(List<Vector3> positions, Vector3 center, out float x, out float z)
+        {
+            float north = 0f, south = 0f, east = 0f, west = 0f;
+            // north and east would be all that's needed under normal circumstances
+            // measure them all and take the maximum in order to get the x and z size
+            foreach (var position in positions)
+            {
+                north = (position.z > center.z) ? Mathf.Max(north, Mathf.Abs(position.z - center.z)) : north;
+                south = (position.z < center.z) ? Mathf.Max(south, Mathf.Abs(center.z - position.z)) : south;
+                east = (position.x > center.x) ? Mathf.Max(east, Mathf.Abs(position.x - center.x)) : east;
+                west = (position.x < center.x) ? Mathf.Max(west, Mathf.Abs(center.x - position.x)) : west;
+            }
+
+            x = Mathf.Max(east, west) - 5f;
+            z = Mathf.Max(north, south) - 5f;
         }
 
         private bool TeleportInForcedBoundary(params BasePlayer[] players)
@@ -3478,7 +3560,7 @@ namespace Oxide.Plugins
             else DisabledCommandData.DisabledCommands.Remove(arg);
 
             dataDisabled.WriteObject(DisabledCommandData);
-            user.Reply("{0} {1}", DisabledCommandData.DisabledCommands.Contains(arg) ? "Disabled:" : "Enabled:", arg);
+            user.Reply(string.Format("{0} {1}", DisabledCommandData.DisabledCommands.Contains(arg) ? "Disabled:" : "Enabled:", arg));
         }
 
         private void CommandTeleport(IPlayer user, string command, string[] args)
@@ -3854,7 +3936,11 @@ namespace Oxide.Plugins
                     TeleportTimers.Remove(player.userID);
                 })
             };
-            PrintMsgL(player, "DM_TownTPStarted", location, countdown);
+            if (countdown > 0)
+            {
+                PrintMsgL(player, "DM_TownTPStarted", location, countdown);
+                Interface.CallHook("OnTeleportBackAccepted", player, location, countdown);
+            }
         }
 
         private void CommandSetHome(IPlayer user, string command, string[] args)
@@ -4836,6 +4922,19 @@ namespace Oxide.Plugins
                     PrintMsgL(player, err);
                     return;
                 }
+                if (config.TPR.BlockTPAOnCeiling)
+                {
+                    if (IsStandingOnEntity(target.transform.position, 20f, Layers.Mask.Construction, out var entity, new string[2] { "floor", "roof" }) && IsCeiling(entity as DecayEntity))
+                    {
+                        PrintMsgL(player, "TPRNoCeiling");
+                        return;
+                    }
+                    if (IsBlockedOnIceberg(target.transform.position))
+                    {
+                        PrintMsgL(player, "HomeIce");
+                        return;
+                    }
+                }
                 var timestamp = Facepunch.Math.Epoch.Current;
                 var currentDate = DateTime.Now.ToString("d");
 
@@ -5038,10 +5137,9 @@ namespace Oxide.Plugins
                 }
                 if (config.TPR.BlockTPAOnCeiling)
                 {
-                    BaseEntity entity;
-                    if (IsStandingOnEntity(player.transform.position, Layers.Mask.Construction, out entity, new string[2] { "floor", "roof" }))
+                    if (IsStandingOnEntity(player.transform.position, 20f, Layers.Mask.Construction, out var entity, new string[2] { "floor", "roof" }) && IsCeiling(entity as DecayEntity))
                     {
-                        PrintMsgL(player, "HomeNoFoundation");
+                        PrintMsgL(player, "TPRNoCeiling");
                         return;
                     }
                     if (IsBlockedOnIceberg(player.transform.position))
@@ -5509,7 +5607,7 @@ namespace Oxide.Plugins
                 try
                 {
                     var vector = string.Join(" ", args).ToVector3();
-                    if (vector == Vector3.zero)
+                    if (vector == Vector3.zero || Vector3.Distance(vector, Vector3.zero) < 50f)
                     {
                         throw new InvalidCastException("vector");
                     }
@@ -5777,6 +5875,10 @@ namespace Oxide.Plugins
             {
                 location = settings.Locations.GetRandom();
             }
+            else if (Vector3.Distance(settings.Location, Vector3.zero) > 5f)
+            {
+                location = settings.Location;
+            }
             else location = settings.Locations.First();
 
             if (!CanBypassRestrictions(player.UserIDString))
@@ -5877,6 +5979,7 @@ namespace Oxide.Plugins
             if (countdown > 0)
             {
                 PrintMsgL(player, "DM_TownTPStarted", language, countdown);
+                Interface.CallHook("OnTownAccepted", player, language, countdown);
             }
         }
 
@@ -5996,7 +6099,11 @@ namespace Oxide.Plugins
             if (!player || !player.IsAdmin) return;
             foreach (var mi in monuments)
             {
-                DrawMonument(player, mi.position, mi.extents, mi.rotation, Color.blue, 30f);
+                if (mi.sphere)
+                {
+                    player.SendConsoleCommand("ddraw.sphere", 30f, Color.black, mi.position, mi.extents.Max());
+                }
+                else DrawMonument(player, mi.position, mi.extents, mi.rotation, Color.blue, 30f);
                 player.SendConsoleCommand("ddraw.text", 30f, Color.blue, mi.position, $"<size=22>{mi.name}</size>");
             }
             foreach (var cave in caves)
@@ -6128,7 +6235,14 @@ namespace Oxide.Plugins
         [HookMethod("Teleport")]
         public void Teleport(BasePlayer player, Vector3 newPosition, string home, ulong uid, bool town, bool allowTPB, bool build = true, bool craft = true)
         {
-            if (!player.IsValid() || Vector3.Distance(newPosition, Vector3.zero) < 5f) return;
+            if (!player.IsValid())
+            {
+                return;
+            }
+            if (Vector3.Distance(newPosition, Vector3.zero) < 5f)
+            {
+                return;
+            }
             if (allowTPB)
             {
                 if (config.Settings.TPB.Time > 0)
@@ -6330,6 +6444,7 @@ namespace Oxide.Plugins
 
         private string NearMonument(Vector3 target, bool check, string mode)
         {
+            Dictionary<string, float> data = new();
             foreach (var mi in monuments)
             {
                 if (monumentExceptions.Exists(mi.name.ToLower().Contains)) continue;
@@ -6351,23 +6466,31 @@ namespace Oxide.Plugins
                         if (config.Settings.Interrupt.Monuments.Exists(value => mi.name.Contains(value, CompareOptions.OrdinalIgnoreCase)))
                         {
 #if DEBUG
-                            Puts($"{target} in range of {mi.name}");
+                            Puts($"{target} in range of {mi.name} at {dist}m");
 #endif
-                            return mi.name;
+                            data[mi.name] = dist;
                         }
 
+                        if (data.Count > 0)
+                        {
+                            continue;
+                        }
 #if DEBUG
                         Puts($"{target} is not blocked from {mi.name}");
 #endif
                         return null;
                     }
 #if DEBUG
-                    Puts($"{target} in range of {mi.name}");
+                    Puts($"{target} in range of {mi.name} at {dist}m");
 #endif
-                    return mi.name;
+                    data[mi.name] = dist;
                 }
             }
-
+            if (data.Count > 0)
+            {
+                var s = data.OrderByDescending(pair => pair.Value).Take(2).Select(pair => (Name: pair.Key, Distance: pair.Value)).ToList();
+                return s.Count > 1 && s[0].Distance > s[1].Distance ? s[1].Name : s[0].Name;
+            }
             return null;
         }
 
@@ -6377,7 +6500,7 @@ namespace Oxide.Plugins
             if (config.Settings.Interrupt.Oilrig || config.Settings.Interrupt.Excavator || config.Settings.Interrupt.Monument || mode == "sethome")
             {
                 string monname = !config.Settings.Interrupt.Safe && player.InSafeZone() ? null : NearMonument(player.transform.position, false, mode);
-                
+
                 if (!string.IsNullOrEmpty(monname))
                 {
                     if (mode == "sethome")
@@ -6386,7 +6509,6 @@ namespace Oxide.Plugins
                         {
                             return null;
                         }
-
                         return "HomeTooCloseToMon";
                     }
                     else
@@ -6535,7 +6657,7 @@ namespace Oxide.Plugins
                 return "TPNoEscapeBlocked";
             }
 
-            var entity = GetStandingOnEntity<BaseMountable>(player, Layers.Mask.Vehicle_Detailed | Layers.Mask.Vehicle_Large);
+            var entity = GetStandingOnEntity<BaseMountable>(player, 1f, Layers.Mask.Vehicle_Detailed | Layers.Mask.Vehicle_Large);
 
             if (entity is BaseMountable)
             {
@@ -6591,10 +6713,12 @@ namespace Oxide.Plugins
             // ubb == UsableIntoBuildingBlocked
             // obb == CupOwnerAllowOnBuildingBlocked
             bool denied = false;
-            foreach (var entity in FindEntitiesOfType<BaseEntity>(targetLocation, 3f, Layers.Mask.Construction | Layers.Mask.Vehicle_Large))
+            var entities = FindEntitiesOfType<BaseEntity>(targetLocation, 3f, Layers.Mask.Construction | Layers.Mask.Vehicle_Large);
+            foreach (var entity in entities)
             {
                 if (entity is Tugboat)
                 {
+                    Pool.FreeList(ref entities);
                     if (usableIntoBuildingBlocked || player.CanBuild(entity.WorldSpaceBounds())) return null;
                     return "TPTargetBuildingBlocked";
                 }
@@ -6657,7 +6781,7 @@ namespace Oxide.Plugins
                     break;
                 }
             }
-
+            Pool.FreeList(ref entities);
             return denied ? "TPTargetBuildingBlocked" : null;
         }
 
@@ -6738,18 +6862,11 @@ namespace Oxide.Plugins
             return null;
         }
 
-        private Collider[] colBuffer = new Collider[8192];
-
-        private List<T> FindEntitiesOfType<T>(Vector3 a, float n, int m = -1) where T : BaseNetworkable
+        private static List<T> FindEntitiesOfType<T>(Vector3 a, float n, int m = -1) where T : BaseEntity
         {
-            int hits = Physics.OverlapSphereNonAlloc(a, n, colBuffer, m, QueryTriggerInteraction.Collide);
-            List<T> entities = new List<T>();
-            for (int i = 0; i < hits; i++)
-            {
-                var entity = colBuffer[i]?.ToBaseEntity();
-                if (entity is T) entities.Add(entity as T);
-                colBuffer[i] = null;
-            }
+            List<T> entities = Pool.GetList<T>();
+            Vis.Entities(a, n, entities, m, QueryTriggerInteraction.Collide);
+            entities.RemoveAll(x => !x || x.IsDestroyed);
             return entities;
         }
 
@@ -6829,8 +6946,7 @@ namespace Oxide.Plugins
             {
                 return "HomeFoundationUnderneathFoundation";
             }
-            BaseEntity entity;
-            if (!IsStandingOnEntity(position, Layers.Mask.Construction | Layers.Mask.Vehicle_Large, out entity, !config.Home.AllowAboveFoundation ? new string[2] { "foundation", "tugboat" } : new string[3] { "floor", "foundation", "tugboat" }))
+            if (!IsStandingOnEntity(position, 2f, Layers.Mask.Construction | Layers.Mask.Vehicle_Large, out var entity, !config.Home.AllowAboveFoundation ? new string[2] { "foundation", "tugboat" } : new string[3] { "floor", "foundation", "tugboat" }))
             {
                 return "HomeNoFoundation";
             }
@@ -6869,8 +6985,7 @@ namespace Oxide.Plugins
 
         private BuildingBlock GetFoundationOwned(Vector3 position, ulong userID)
         {
-            BaseEntity entity;
-            if (!IsStandingOnEntity(position, Layers.Mask.Construction, out entity, new string[1] { "foundation" }) || !PassesStrictCheck(entity, position)) return null;
+            if (!IsStandingOnEntity(position, 2f, Layers.Mask.Construction, out var entity, new string[1] { "foundation" }) || !PassesStrictCheck(entity, position)) return null;
             if (!config.Home.CheckFoundationForOwner || IsAlly(userID, entity.OwnerID, config.Home.UseTeams, config.Home.UseClans, config.Home.UseFriends)) return entity as BuildingBlock;
             return null;
         }
@@ -6958,16 +7073,19 @@ namespace Oxide.Plugins
 
         private bool IsExternalWallOverlapped(Vector3 center, Vector3 position)
         {
-            foreach (var wall in FindEntitiesOfType<BaseEntity>(center, 1.5f))
+            var walls = FindEntitiesOfType<BaseEntity>(center, 1.5f);
+            foreach (var wall in walls)
             {
                 if (wall.PrefabName.Contains("external.high"))
                 {
 #if DEBUG
                     Puts($"    Found: {wall.PrefabName} @ center {center}, pos {position}");
 #endif
+                    Pool.FreeList(ref walls);
                     return true;
                 }
             }
+            Pool.FreeList(ref walls);
             return false;
         }
 
@@ -6977,9 +7095,9 @@ namespace Oxide.Plugins
             {
                 return null;
             }
-            if (entity is T)
+            if (entity is T val)
             {
-                return entity as T;
+                return val;
             }
             if (!entity.HasParent())
             {
@@ -6988,16 +7106,16 @@ namespace Oxide.Plugins
             var parent = entity.GetParentEntity();
             while (parent != null)
             {
-                if (parent is T)
+                if (parent is T val2)
                 {
-                    return parent as T;
+                    return val2;
                 }
                 parent = parent.GetParentEntity();
             }
             return null;
         }
 
-        private T GetStandingOnEntity<T>(BasePlayer player, int layerMask) where T : BaseEntity
+        private T GetStandingOnEntity<T>(BasePlayer player, float distance, int layerMask) where T : BaseEntity
         {
             if (player.HasParent())
             {
@@ -7015,24 +7133,64 @@ namespace Oxide.Plugins
                     return mounted;
                 }
             }
-            return GetStandingOnEntity<T>(player.transform.position, layerMask);
+            return GetStandingOnEntity<T>(player.transform.position, distance, layerMask);
         }
 
-        private T GetStandingOnEntity<T>(Vector3 a, int layerMask) where T : BaseEntity
+        private T GetStandingOnEntity<T>(Vector3 a, float distance, int layerMask) where T : BaseEntity
         {
-            if (Physics.Raycast(a + new Vector3(0f, 0.1f, 0f), Vector3.down, out var hit, 1f, layerMask, QueryTriggerInteraction.Ignore))
+            if (Physics.Raycast(a + new Vector3(0f, 0.1f, 0f), Vector3.down, out var hit, distance, layerMask, QueryTriggerInteraction.Ignore))
             {
                 var entity = hit.GetEntity();
                 if (entity is T n) return n;
             }
+            if (layerMask != Layers.Mask.Construction)
+            {
+                var ents = FindEntitiesOfType<T>(a, distance, layerMask);
+                T ent = ents.Count > 0 ? ents[0] : null;
+                Pool.FreeList(ref ents);
+                return ent;
+            }
             return null;
         }
 
-        private bool IsStandingOnEntity(Vector3 a, int layerMask, out BaseEntity entity, string[] prefabs)
+        private bool IsStandingOnEntity(Vector3 a, float distance, int layerMask, out BaseEntity entity, string[] prefabs)
         {
-            entity = GetStandingOnEntity<BaseEntity>(a, layerMask);
+            entity = GetStandingOnEntity<BaseEntity>(a, distance, layerMask);
             if (entity == null || !PassesStrictCheck(entity, a)) return false;
             return Array.Exists(prefabs, entity.ShortPrefabName.Contains);
+        }
+
+        private bool IsCeiling(DecayEntity entity)
+        {
+            if (!entity || entity.ShortPrefabName.Contains("roof"))
+            {
+                return true;
+            }
+            var building = entity.GetBuilding();
+            if (building == null || !building.HasBuildingBlocks())
+            {
+                return true;
+            }
+            var data = new Dictionary<double, int>();
+            foreach (var block in building.buildingBlocks)
+            {
+                if (!block || block.IsDestroyed || (!block.ShortPrefabName.Contains("floor") && !block.ShortPrefabName.Contains("roof")))
+                {
+                    continue;
+                }
+                var j = Math.Round(block.transform.position.y, 2);
+                if (data.ContainsKey(j))
+                {
+                    data[j]++;
+                }
+                else
+                {
+                    data[j] = 1;
+                }
+            }
+            var k = Math.Round(entity.transform.position.y, 2);
+            var s = data.OrderByDescending(pair => pair.Value).Take(2).Select(pair => (Height: pair.Key, Count: pair.Value)).ToList();
+            return k >= (s.Count > 1 && s[1].Count > s[0].Count ? s[1].Height : s[0].Height);
         }
 
         private bool CheckBoundaries(float x, float y, float z)
@@ -7068,12 +7226,19 @@ namespace Oxide.Plugins
 
         private bool GetLift(Vector3 position)
         {
-            return FindEntitiesOfType<ProceduralLift>(position, 0.5f).Count > 0;
+            var lifts = FindEntitiesOfType<ProceduralLift>(position, 0.5f);
+            bool result = lifts.Count > 0;
+            Pool.FreeList(ref lifts);
+            return result;
         }
 
         private bool IsOnJunkPile(BasePlayer player)
         {
-            return player.GetParentEntity() is JunkPile || FindEntitiesOfType<JunkPile>(player.transform.position, 3f, Layers.Mask.World).Count > 0;
+            if (player.GetParentEntity() is JunkPile) return true;
+            var junkpiles = FindEntitiesOfType<JunkPile>(player.transform.position, 3f, Layers.Mask.World);
+            var result = junkpiles.Count > 0;
+            Pool.FreeList(ref junkpiles);
+            return result;
         }
 
         private bool IsAllowed(BasePlayer player, string perm = null)
@@ -7290,6 +7455,11 @@ namespace Oxide.Plugins
                 center + rotation * new Vector3(extents.x, -extents.y, -extents.z),
                 center + rotation * new Vector3(-extents.x, -extents.y, -extents.z)
             };
+
+            //foreach (var vector in boxVertices)
+            //{
+            //    player.SendConsoleCommand("ddraw.text", 30f, Color.red, vector, $"<size=22>X</size>");
+            //}
 
             player.SendConsoleCommand("ddraw.line", duration, color, boxVertices[0], boxVertices[1]);
             player.SendConsoleCommand("ddraw.line", duration, color, boxVertices[0], boxVertices[1]);
