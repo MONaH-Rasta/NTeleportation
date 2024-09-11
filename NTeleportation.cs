@@ -21,7 +21,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.8.2")]
+    [Info("NTeleportation", "nivex", "1.8.3")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -91,7 +91,6 @@ namespace Oxide.Plugins
             public Quaternion rotation;
             public Vector3 position;
             public Vector3 extents;
-            public Matrix4x4 m;
             public string name;
             public string prefab;
             public bool sphere;
@@ -104,7 +103,6 @@ namespace Oxide.Plugins
                 this.name = name;
                 this.prefab = prefab;
                 this.extents = extents + new Vector3(extra, extra, extra);
-                m = Matrix4x4.TRS(position, rotation, Vector3.one);
             }
             public bool IsInBounds(Vector3 a)
             {
@@ -118,7 +116,7 @@ namespace Oxide.Plugins
                     return Vector3Ex.Distance2D(a, position) <= extents.Max();
                 }
 
-                Vector3 v = m.inverse.MultiplyPoint3x4(a);
+                Vector3 v = Quaternion.Inverse(rotation) * (a - position);
 
                 return v.x <= extents.x && v.x > -extents.x && v.y <= extents.y && v.y > -extents.y && v.z <= extents.z && v.z > -extents.z;
             }
@@ -3724,10 +3722,14 @@ namespace Oxide.Plugins
                 x -= x * 0.25f;
                 z -= z * 0.25f;
             }
+            if (x <= 0 && y <= 0 && z <= 0)
+            {
+                x = y = z = radius;
+            }
             var mi = new MonumentInfoEx(from, rot, new Vector3(x, y, z), config.Admin.ExtraMonumentDistance, text, prefab, sphere);
             monuments.Add(mi);
 #if DEBUG
-            Puts($"Adding Monument: {text}, pos: {from}, size: {x} {y} {z}");
+            Puts($"Adding Monument: {text}, pos: {from}, size: {x} {y} {z}, radius: {radius}, bounds: {(b != null ? b.extents.Max() : 0)}");
 #endif
             if (config.Settings.Outpost.Exists(text.Contains))
             {
@@ -6672,7 +6674,7 @@ namespace Oxide.Plugins
                 player.inventory.containerMain.OnChanged();
                 player.inventory.containerBelt.OnChanged();
                 player.inventory.containerWear.OnChanged();
-                Interface.CallHook("OnPlayerSleepEnded", this);
+                Interface.CallHook("OnPlayerSleepEnded", player);
                 EACServer.LogPlayerSpawn(player);
                 if (player.State?.pings?.Count > 0)
                 {
@@ -6790,7 +6792,7 @@ namespace Oxide.Plugins
                         if (config.Settings.Interrupt.Monuments.Exists(value => mi.name.Contains(value, CompareOptions.OrdinalIgnoreCase)))
                         {
 #if DEBUG
-                            Puts($"{target} in range of {mi.name} at {dist}m");
+                            Puts($"{target} in range of {mi.name} at {dist}m {mi.extents} {mi.sphere}");
 #endif
                             data[mi.name] = dist;
                         }
@@ -6833,6 +6835,7 @@ namespace Oxide.Plugins
                         {
                             return null;
                         }
+                        //player.ChatMessage(monname);
                         return "HomeTooCloseToMon";
                     }
                     else
