@@ -26,10 +26,10 @@ namespace Oxide.Plugins
     class NTeleportation : RustPlugin
     {
         [PluginReference]
-        private Plugin Clans, Economics, IQEconomic, ServerRewards, Friends, CompoundTeleport, ZoneManager, NoEscape, RaidBlock, PopupNotifications, BlockUsers;
+        private readonly Plugin Clans, Economics, IQEconomic, ServerRewards, Friends, CompoundTeleport, ZoneManager, NoEscape, RaidBlock, PopupNotifications, BlockUsers;
 
-        private Dictionary<string, BasePlayer> _codeToPlayer = new();
-        private Dictionary<string, string> _playerToCode = new();
+        private readonly Dictionary<string, BasePlayer> _codeToPlayer = new();
+        private readonly Dictionary<string, string> _playerToCode = new();
 
         private bool newSave;
         private const string NewLine = "\n";
@@ -60,7 +60,7 @@ namespace Oxide.Plugins
         private const string PermExempt = "nteleportation.exemptfrominterruptcountdown";
         private const string PermFoundationCheck = "nteleportation.bypassfoundationcheck";
         private const string PermTpMarker = "nteleportation.tpmarker";
-        private DynamicConfigFile dataConvert;
+        private readonly DynamicConfigFile dataConvert;
         private DynamicConfigFile dataDisabled;
         private DynamicConfigFile dataAdmin;
         private DynamicConfigFile dataHome;
@@ -69,20 +69,20 @@ namespace Oxide.Plugins
         private Dictionary<ulong, AdminData> _Admin;
         private Dictionary<ulong, HomeData> _Home;
         private Dictionary<ulong, TeleportData> _TPR;
-        private Dictionary<string, List<string>> TPT = new Dictionary<string, List<string>>();
+        private Dictionary<string, List<string>> TPT = new();
         private bool changedAdmin;
         private bool changedHome;
         private bool changedTPR;
         private bool changedTPT;
         private float boundary;
-        private readonly Dictionary<ulong, float> TeleportCooldowns = new Dictionary<ulong, float>();
-        private readonly Dictionary<ulong, TeleportTimer> TeleportTimers = new Dictionary<ulong, TeleportTimer>();
-        private readonly Dictionary<ulong, Timer> PendingRequests = new Dictionary<ulong, Timer>();
-        private readonly Dictionary<ulong, BasePlayer> PlayersRequests = new Dictionary<ulong, BasePlayer>();
-        private readonly Dictionary<int, string> ReverseBlockedItems = new Dictionary<int, string>();
-        private readonly Dictionary<ulong, Vector3> teleporting = new Dictionary<ulong, Vector3>();
-        private SortedDictionary<string, Vector3> caves = new SortedDictionary<string, Vector3>();
-        private List<MonumentInfoEx> monuments = new List<MonumentInfoEx>();
+        private readonly Dictionary<ulong, float> TeleportCooldowns = new();
+        private readonly Dictionary<ulong, TeleportTimer> TeleportTimers = new();
+        private readonly Dictionary<ulong, Timer> PendingRequests = new();
+        private readonly Dictionary<ulong, BasePlayer> PlayersRequests = new();
+        private readonly Dictionary<int, string> ReverseBlockedItems = new();
+        private readonly Dictionary<ulong, Vector3> teleporting = new();
+        private readonly SortedDictionary<string, Vector3> caves = new();
+        private readonly List<MonumentInfoEx> monuments = new();
         private bool outpostEnabled;
         private bool banditEnabled;
 
@@ -198,7 +198,7 @@ namespace Oxide.Plugins
 
         public bool IsAuthed(BasePlayer player, BuildingPrivlidge priv) => (priv.OwnerID == player.userID && config.Home.UsableIntoBuildingBlocked) || config.Home.UsableIntoBuildingBlocked || priv.IsAuthed(player);
 
-        private List<ulong> delayedTeleports = new();
+        private readonly List<ulong> delayedTeleports = new();
 
         public void DelayedTeleportHome(BasePlayer player)
         {
@@ -289,7 +289,7 @@ namespace Oxide.Plugins
             public double SaveDelay { get; set; } = 4.0;
 
             [JsonProperty("TPB")]
-            public TPBSettings TPB = new TPBSettings();
+            public TPBSettings TPB = new();
 
             [JsonProperty(PropertyName = "Interrupt TP")]
             public InterruptSettings Interrupt { get; set; } = new InterruptSettings();
@@ -426,7 +426,7 @@ namespace Oxide.Plugins
             public bool PlaySoundsBeforeTeleport = true;
 
             [JsonProperty("Sound Effects Before Teleport", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-            public List<string> DisappearEffects = new List<string>
+            public List<string> DisappearEffects = new()
             {
                 "assets/prefabs/missions/portal/proceduraldungeon/effects/disappear.prefab"
             };
@@ -435,7 +435,7 @@ namespace Oxide.Plugins
             public bool PlaySoundsAfterTeleport = true;
 
             [JsonProperty("Sound Effects After Teleport", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-            public List<string> ReappearEffects = new List<string>
+            public List<string> ReappearEffects = new()
             {
                 "assets/prefabs/missions/portal/proceduraldungeon/effects/appear.prefab"
             };
@@ -608,7 +608,7 @@ namespace Oxide.Plugins
             public bool PlaySoundsToRequestTarget;
 
             [JsonProperty("Teleport Request Sound Effects", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-            public List<string> TeleportRequestEffects = new List<string>
+            public List<string> TeleportRequestEffects = new()
             {
                 "assets/prefabs/missions/portal/proceduraldungeon/effects/disappear.prefab"
             };
@@ -617,7 +617,7 @@ namespace Oxide.Plugins
             public bool PlaySoundsWhenTargetAccepts;
 
             [JsonProperty("Teleport Accept Sound Effects", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-            public List<string> TeleportAcceptEffects = new List<string>
+            public List<string> TeleportAcceptEffects = new()
             {
                 "assets/prefabs/missions/portal/proceduraldungeon/effects/appear.prefab"
             };
@@ -751,7 +751,7 @@ namespace Oxide.Plugins
             }
 
             [JsonIgnore]
-            public StoredData Teleports = new StoredData();
+            public StoredData Teleports = new();
 
             [JsonIgnore]
             public string Command { get; set; }
@@ -760,25 +760,25 @@ namespace Oxide.Plugins
         private class Configuration
         {
             [JsonProperty(PropertyName = "Settings")]
-            public PluginSettings Settings = new PluginSettings();
+            public PluginSettings Settings = new();
 
             [JsonProperty(PropertyName = "Admin")]
-            public AdminSettings Admin = new AdminSettings();
+            public AdminSettings Admin = new();
 
             [JsonProperty(PropertyName = "Home")]
-            public HomesSettings Home = new HomesSettings();
+            public HomesSettings Home = new();
 
             [JsonProperty(PropertyName = "TPT")]
-            public TPTSettings TPT = new TPTSettings();
+            public TPTSettings TPT = new();
 
             [JsonProperty(PropertyName = "TPR")]
-            public TPRSettings TPR = new TPRSettings();
+            public TPRSettings TPR = new();
 
             [JsonProperty(PropertyName = "Dynamic Commands", ObjectCreationHandling = ObjectCreationHandling.Replace)]
             public Dictionary<string, TownSettings> DynamicCommands { get; set; } = DefaultCommands;
         }
 
-        private static Dictionary<string, TownSettings> DefaultCommands = new Dictionary<string, TownSettings>
+        private static readonly Dictionary<string, TownSettings> DefaultCommands = new()
         {
             ["Town"] = new TownSettings() { Random = false },
             ["Island"] = new TownSettings() { AllowTPB = false },
@@ -852,7 +852,7 @@ namespace Oxide.Plugins
 
         protected override void LoadDefaultConfig()
         {
-            config = new Configuration();
+            config = new();
             Puts("Loaded default configuration.");
         }
 
@@ -861,7 +861,7 @@ namespace Oxide.Plugins
         private class DisabledData
         {
             [JsonProperty("List of disabled commands")]
-            public List<string> DisabledCommands = new List<string>();
+            public List<string> DisabledCommands = new();
 
             public DisabledData() { }
         }
@@ -889,7 +889,7 @@ namespace Oxide.Plugins
             public bool AllowCrafting { get; set; }
 
             [JsonProperty("l")]
-            public Dictionary<string, Vector3> Locations { get; set; } = new Dictionary<string, Vector3>(StringComparer.OrdinalIgnoreCase);
+            public Dictionary<string, Vector3> Locations { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         }
 
         private class HomeData
@@ -928,16 +928,16 @@ namespace Oxide.Plugins
             }
 
             [JsonProperty("l")]
-            public Dictionary<string, Vector3> buildings { get; set; } = new Dictionary<string, Vector3>(StringComparer.OrdinalIgnoreCase);
+            public Dictionary<string, Vector3> buildings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
             [JsonProperty("b")]
-            public Dictionary<string, Boat> boats { get; set; } = new Dictionary<string, Boat>(StringComparer.OrdinalIgnoreCase);
+            public Dictionary<string, Boat> boats { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
             [JsonProperty("t")]
-            public TeleportData Teleports { get; set; } = new TeleportData();
+            public TeleportData Teleports { get; set; } = new();
 
             [JsonIgnore]
-            private Dictionary<string, Entry> Cache = new Dictionary<string, Entry>();
+            private readonly Dictionary<string, Entry> Cache = new();
 
             [JsonIgnore]
             public Dictionary<string, Entry> Locations
@@ -957,7 +957,7 @@ namespace Oxide.Plugins
             {
                 foreach (var pair in buildings)
                 {
-                    Cache[pair.Key] = new Entry(pair.Value);
+                    Cache[pair.Key] = new(pair.Value);
                 }
             }
 
@@ -967,7 +967,7 @@ namespace Oxide.Plugins
                 {
                     var entity = BaseNetworkable.serverEntities.Find(new NetworkableId(boat.Value));
                     if (entity.IsKilled()) continue;
-                    Cache[key] = new Entry
+                    Cache[key] = new()
                     {
                         Position = boat.Offset,
                         wasEntity = true,
@@ -986,7 +986,7 @@ namespace Oxide.Plugins
                 Locations[key] = homeEntry;
                 if (homeEntry.isEntity)
                 {
-                    boats[key] = new Boat(homeEntry);
+                    boats[key] = new(homeEntry);
                 }
                 else buildings[key] = homeEntry.Get();
             }
@@ -2652,11 +2652,11 @@ namespace Oxide.Plugins
             return code;
         }
 
-        private Dictionary<string, StoredData> _DynamicData = new Dictionary<string, StoredData>();
+        private readonly Dictionary<string, StoredData> _DynamicData = new();
 
         public class StoredData
         {
-            public Dictionary<ulong, TeleportData> TPData = new Dictionary<ulong, TeleportData>();
+            public Dictionary<ulong, TeleportData> TPData = new();
             public bool Changed = true;
         }
 
@@ -5617,7 +5617,7 @@ namespace Oxide.Plugins
             }
         }
 
-        private List<string> _tpid = new List<string> { "home", "bandit", "outpost", "tpr", "town" };
+        private readonly List<string> _tpid = new() { "home", "bandit", "outpost", "tpr", "town" };
 
         private void CommandTeleportInfo(IPlayer user, string command, string[] args)
         {
@@ -6513,7 +6513,7 @@ namespace Oxide.Plugins
 
         #region Util
 
-        private readonly System.Text.StringBuilder _sb = new System.Text.StringBuilder();
+        private readonly System.Text.StringBuilder _sb = new();
 
         private string FormatTime(BasePlayer player, double seconds) // Credits MoNaH
         {
@@ -6715,7 +6715,7 @@ namespace Oxide.Plugins
             }
         }
 
-        [PluginReference] Plugin RaidableBases, AbandonedBases;
+        [PluginReference] readonly Plugin RaidableBases, AbandonedBases;
 
         private void OnMapMarkerAdded(BasePlayer player, ProtoBuf.MapNote note)
         {
@@ -6774,7 +6774,7 @@ namespace Oxide.Plugins
             return config.TPR.AllowCraft || permission.UserHasPermission(player.UserIDString, PermCraftTpR) || CanBypassRestrictions(player.UserIDString);
         }
 
-        private List<string> monumentExceptions = new List<string> { "outpost", "bandit", "substation", "swamp", "compound.prefab" };
+        private readonly List<string> monumentExceptions = new() { "outpost", "bandit", "substation", "swamp", "compound.prefab" };
 
         private bool IsInAllowedMonument(Vector3 target, string mode)
         {
@@ -7325,7 +7325,7 @@ namespace Oxide.Plugins
 
         private bool IsInBounds(BuildingBlock block, Vector3 a)
         {
-            OBB obb = new OBB(block.transform.position + new Vector3(0f, 1f), block.transform.lossyScale, block.transform.rotation, block.bounds);
+            OBB obb = new(block.transform.position + new Vector3(0f, 1f), block.transform.lossyScale, block.transform.rotation, block.bounds);
             if (obb.Contains(a))
             {
                 return true;
@@ -7632,7 +7632,7 @@ namespace Oxide.Plugins
             return false;
         }
 
-        private Effect reusableSoundEffectInstance = new Effect();
+        private readonly Effect reusableSoundEffectInstance = new();
 
         private void SendEffect(BasePlayer player, List<string> effects)
         {
@@ -7783,8 +7783,8 @@ namespace Oxide.Plugins
             catch { }
         }
 
-        private List<string> discordMessages = new();
-        private Dictionary<(ulong, ulong), int> teleportCounts = new();
+        private readonly List<string> discordMessages = new();
+        private readonly Dictionary<(ulong, ulong), int> teleportCounts = new();
 
         public class DiscordMessage
         {
