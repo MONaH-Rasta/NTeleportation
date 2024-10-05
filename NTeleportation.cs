@@ -21,7 +21,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.8.4")]
+    [Info("NTeleportation", "nivex", "1.8.5")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -1236,6 +1236,7 @@ namespace Oxide.Plugins
                 { "Seconds", "Seconds" },
 
                 {"BlockedMarkerTeleport", "You have been blocked from using the marker teleport!" },
+                {"BlockedAuthMarkerTeleport", "You have been TC blocked from using the marker teleport!" },
                 {"Interrupted", "Your teleport was interrupted!"},
                 {"InterruptedTarget", "{0}'s teleport was interrupted!"},
                 {"Unlimited", "Unlimited"},
@@ -1750,6 +1751,7 @@ namespace Oxide.Plugins
                 {"Seconds", "секунд" },
 
                 {"BlockedMarkerTeleport", "Вам заблокировано использование маркера телепортации!" },
+                {"BlockedAuthMarkerTeleport", "Вам заблокировано использование маркера телепортации! (TC)" },
                 {"Interrupted", "Ваша телепортация была прервана!"},
                 {"InterruptedTarget", "Телепортация {0} была прервана!"},
                 {"Unlimited", "Не ограничено"},
@@ -2262,6 +2264,7 @@ namespace Oxide.Plugins
                 {"Seconds", "секунд" },
 
                 {"BlockedMarkerTeleport", "Вам заблоковано використання маркера телепортації!" },
+                {"BlockedAuthMarkerTeleport", "Вам заблоковано використання маркера телепортації! (TC)" },
                 {"Interrupted", "Вашу телепортацію було перервано!"},
                 {"InterruptedTarget", "Телепортація {0} була перервана!"},
                 {"Unlimited", "Не обмежено"},
@@ -3253,6 +3256,10 @@ namespace Oxide.Plugins
                 var position = monument.transform.position;
                 var rotation = monument.transform.rotation;
                 var name = monument.displayPhrase.english.Trim();
+                if (name.Contains("Lake") || name.Contains("Canyon") || name.Contains("Oasis"))
+                {
+                    continue;
+                }
                 if (string.IsNullOrEmpty(name))
                 {
                     if (monument.name.Contains("cave"))
@@ -6738,6 +6745,10 @@ namespace Oxide.Plugins
                     {
                         PrintMsgL(player, "BlockedMarkerTeleport");
                     }
+                    else if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin) && player.IsBuildingBlocked(note.worldPosition, Quaternion.identity, player.bounds))
+                    {
+                        PrintMsgL(player, "BlockedAuthMarkerTeleport");
+                    }
                     else player.Teleport(note.worldPosition + new Vector3(0f, y, 0f));
                 }
             }
@@ -7106,7 +7117,7 @@ namespace Oxide.Plugins
                     Puts("Player owns block");
 #endif
 
-                    if (!player.IsBuildingBlocked(targetLocation, new Quaternion(), block.bounds))
+                    if (!player.IsBuildingBlocked(targetLocation, Quaternion.identity, block.bounds))
                     {
 #if DEBUG
                         Puts("Player not BuildingBlocked. Likely unprotected building.");
