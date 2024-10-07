@@ -21,7 +21,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.8.5")]
+    [Info("NTeleportation", "nivex", "1.8.6")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -8018,7 +8018,11 @@ namespace Oxide.Plugins
                 return Physics.Raycast(point, Vector3.up, out var hit, 30f, Layers.Mask.World) && IsRock(hit.collider.name);
             }
 
-            private static bool IsRock(string name) => name.Contains("rock", CompareOptions.OrdinalIgnoreCase) || name.Contains("formation", CompareOptions.OrdinalIgnoreCase) || name.Contains("cliff", CompareOptions.OrdinalIgnoreCase);
+            private static bool IsRock(string name)
+            {
+                if (name.Contains("rock_formation_huge", CompareOptions.OrdinalIgnoreCase)) return false;
+                return name.Contains("rock", CompareOptions.OrdinalIgnoreCase) || name.Contains("formation", CompareOptions.OrdinalIgnoreCase) || name.Contains("cliff", CompareOptions.OrdinalIgnoreCase);
+            }
         }
 
         [HookMethod("SendHelpText")]
