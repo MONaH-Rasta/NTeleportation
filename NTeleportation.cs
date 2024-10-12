@@ -21,7 +21,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.8.6")]
+    [Info("NTeleportation", "nivex", "1.8.7")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -2984,6 +2984,7 @@ namespace Oxide.Plugins
 
         private void AddCovalenceCommands()
         {
+            AddCovalenceCommand("toggletpmarker", nameof(CommandBlockMapMarker));
             if (config.Settings.TPREnabled)
             {
                 AddCovalenceCommand("tpr", nameof(CommandTeleportRequest));
@@ -4166,6 +4167,15 @@ namespace Oxide.Plugins
                     SendReply(player, err);
                     return;
                 }
+                if (!string.IsNullOrEmpty(adminData.Home))
+                {
+                    err = CanPlayerTeleportHome(player, adminData.PreviousLocation);
+                    if (err != null)
+                    {
+                        SendReply(player, err);
+                        return;
+                    }
+                }
                 err = CheckPlayer(player, adminData.BuildingBlocked, adminData.AllowCrafting, true, "tpb", true);
                 if (err != null)
                 {
@@ -4218,6 +4228,17 @@ namespace Oxide.Plugins
                             PrintMsgL(player, err);
                             TeleportTimers.Remove(player.userID);
                             return;
+                        }
+                        if (!string.IsNullOrEmpty(adminData.Home))
+                        {
+                            err = CanPlayerTeleportHome(player, location);
+                            if (err != null)
+                            {
+                                PrintMsgL(player, "Interrupted");
+                                SendReply(player, err);
+                                TeleportTimers.Remove(player.userID);
+                                return;
+                            }
                         }
                         err = CheckItems(player);
                         if (err != null)
@@ -4800,6 +4821,12 @@ namespace Oxide.Plugins
                     return;
                 }
                 err = CanPlayerTeleport(player, position, player.transform.position);
+                if (err != null)
+                {
+                    SendReply(player, err);
+                    return;
+                }
+                err = CanPlayerTeleportHome(player, position);
                 if (err != null)
                 {
                     SendReply(player, err);
@@ -6724,9 +6751,19 @@ namespace Oxide.Plugins
 
         [PluginReference] Plugin RaidableBases, AbandonedBases;
 
+        private List<string> blockMapMarker = new();
+
+        private void CommandBlockMapMarker(IPlayer user, string command, string[] args)
+        {
+            if (!blockMapMarker.Remove(user.Id))
+            {
+                blockMapMarker.Add(user.Id);
+            }
+        }
+
         private void OnMapMarkerAdded(BasePlayer player, ProtoBuf.MapNote note)
         {
-            if (player.IsAlive())
+            if (player.IsAlive() && !blockMapMarker.Contains(player.UserIDString))
             {
                 if (permission.UserHasPermission(player.UserIDString, "nteleportation.blocktpmarker"))
                 {
@@ -6775,6 +6812,14 @@ namespace Oxide.Plugins
             return null;
         }
 
+        private string CanPlayerTeleportHome(BasePlayer player, Vector3 homePos)
+        {
+            if (CanBypassRestrictions(player.UserIDString)) return null;
+            var err = Interface.Oxide.CallHook("CanTeleportHome", player, homePos) as string;
+            if (!string.IsNullOrEmpty(err)) return err;
+            return null;
+        }
+        
         private bool CanCraftHome(BasePlayer player)
         {
             return config.Home.AllowCraft || permission.UserHasPermission(player.UserIDString, PermCraftHome) || CanBypassRestrictions(player.UserIDString);
@@ -8137,7 +8182,7 @@ namespace Oxide.Plugins.NTeleportationExtensionMethods
         public static List<T> Where<T>(this IEnumerable<T> a, Func<T, bool> b) { List<T> c = new(a is ICollection<T> n ? n.Count : 4); foreach (var d in a) { if (b(d)) { c.Add(d); } } return c; }
         public static List<T> OrderByDescending<T, TKey>(this IEnumerable<T> a, Func<T, TKey> s) { List<T> m = new(a); m.Sort((x, y) => Comparer<TKey>.Default.Compare(s(y), s(x))); return m; }
         public static int Count<T>(this IEnumerable<T> a, Func<T, bool> b) { int c = 0; foreach (T d in a) { if (b(d)) { c++; } } return c; }
-        public static bool IsKilled(this BaseNetworkable a) { try { return (object)a == null || a.IsDestroyed || a.transform == null; } catch { return true; } }
+        public static bool IsKilled(this BaseNetworkable a) => a == null || a.IsDestroyed || !a.IsFullySpawned();
         public static void ResetToPool<T>(this List<T> obj) { if (obj == null) return; obj.Clear(); Pool.FreeUnmanaged(ref obj); }
     }
 }
