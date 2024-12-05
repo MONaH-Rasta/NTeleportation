@@ -21,7 +21,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.8.8")]
+    [Info("NTeleportation", "nivex", "1.8.9")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -3392,6 +3392,69 @@ namespace Oxide.Plugins
             _cmc = null;
         }
 
+        private void RemoveNearBuildingBlocks(List<BaseEntity> ents)
+        {
+            List<Vector3> blocks = Pool.Get<List<Vector3>>();
+
+            foreach (var ent in ents)
+            {
+                BuildingBlock block = ent as BuildingBlock;
+                if (block != null && !block.IsDestroyed)
+                {
+                    blocks.Add(block.transform.position);
+                }
+            }
+
+            for (int i = ents.Count - 1; i >= 0; i--)
+            {
+                BaseEntity entity = ents[i];
+
+                if (entity.IsKilled())
+                {
+                    ents.RemoveAt(i);
+                    continue;
+                }
+
+                bool shouldRemove = false;
+
+                foreach (var blockPos in blocks)
+                {
+                    if (entity.Distance(blockPos) <= 3f)
+                    {
+                        shouldRemove = true;
+                        break;
+                    }
+                }
+
+                if (shouldRemove)
+                {
+                    ents.RemoveAt(i);
+                    continue;
+                }
+
+                foreach (var other in ents)
+                {
+                    if (other.IsKilled() || other == entity || other is BaseChair)
+                    {
+                        continue;
+                    }
+
+                    if (entity.Distance(other.transform.position) <= 3f)
+                    {
+                        shouldRemove = true;
+                        break;
+                    }
+                }
+
+                if (shouldRemove)
+                {
+                    ents.RemoveAt(i);
+                }
+            }
+
+            blocks.ResetToPool();
+        }
+
         private IEnumerator SetupOutpost(PrefabInfo mi)
         {
             var outpost = GetSettings("outpost");
@@ -3420,6 +3483,7 @@ namespace Oxide.Plugins
                 bool changedOutpost = false;
                 var ents = Pool.Get<List<BaseEntity>>();
                 Vis.Entities(mi.position, radius, ents);
+                RemoveNearBuildingBlocks(ents);
                 foreach (BaseEntity entity in ents)
                 {
                     if (entity.IsKilled() || config.Settings.BlockedPrefabs.Contains(entity.ShortPrefabName) || config.Settings.BlockedPrefabs.Contains(entity.GetType().Name))
@@ -3502,6 +3566,7 @@ namespace Oxide.Plugins
                 var ents = Pool.Get<List<BaseEntity>>();
                 float radius = monument.Bounds.size.Max();
                 Vis.Entities(monument.transform.position, radius, ents);
+                RemoveNearBuildingBlocks(ents);
                 foreach (BaseEntity entity in ents)
                 {
                     if (entity.IsKilled() || config.Settings.BlockedPrefabs.Contains(entity.ShortPrefabName) || config.Settings.BlockedPrefabs.Contains(entity.GetType().Name))
@@ -3585,6 +3650,7 @@ namespace Oxide.Plugins
                 bool changedBandit = false;
                 var ents = Pool.Get<List<BaseEntity>>();
                 Vis.Entities(mi.position, radius, ents);
+                RemoveNearBuildingBlocks(ents);
                 foreach (BaseEntity entity in ents)
                 {
                     if (entity.IsKilled() || entity.OwnerID.IsSteamId() || OutOfRange(mi.position, entity.transform.position, radius, entity is BaseChair))
@@ -3665,6 +3731,7 @@ namespace Oxide.Plugins
                 bool changedBandit = false;
                 var ents = Pool.Get<List<BaseEntity>>();
                 Vis.Entities(monument.transform.position, radius, ents);
+                RemoveNearBuildingBlocks(ents);
                 foreach (BaseEntity entity in ents)
                 {
                     if (entity.IsKilled() || entity.OwnerID.IsSteamId() || OutOfRange(monument, entity.transform.position, entity is BaseChair))
@@ -3857,7 +3924,7 @@ namespace Oxide.Plugins
             for (int i = 0; i < positions.Count; i++)
             {
                 Vector3 a = positions[i];
-                
+
                 float y = TerrainMeta.HeightMap.GetHeight(a);
 
                 positions[i] = a.WithY(y);
@@ -3939,7 +4006,7 @@ namespace Oxide.Plugins
         }
 
         private bool OutOfRange(MonumentInfo m, Vector3 a, bool checkHeight) => checkHeight && Mathf.Abs(a.y - TerrainMeta.HeightMap.GetHeight(a)) > 5f || m.Distance(a) > m.Bounds.extents.Max() * 0.5f;
-        
+
         private bool OutOfRange(Vector3 m, Vector3 a, float r, bool checkHeight) => checkHeight && Mathf.Abs(a.y - TerrainMeta.HeightMap.GetHeight(a)) > 5f || (a - m).magnitude > r * 0.5f;
 
         private void CommandToggle(IPlayer user, string command, string[] args)
@@ -4638,7 +4705,7 @@ namespace Oxide.Plugins
             }
             if (!wasEntity)
             {
-                PrintMsgL(player, "HomeRemovedInvalid", $"{homeName} {position} ({PhoneController.PositionToGridCoord(position)})");
+                PrintMsgL(player, "HomeRemovedInvalid", $"{homeName} {position} ({MapHelper.PositionToString(position)})");
                 PrintMsgL(player, err);
             }
             else PrintMsgL(player, "HomeRemovedDestroyed", homeName);
@@ -5082,7 +5149,7 @@ namespace Oxide.Plugins
             PrintMsgL(player, "HomeList");
             ValidateHomes(player, homeData, true, false);
             foreach (var location in homeData.Locations)
-                PrintMsgL(player, $"{location.Key} {location.Value.Get()} {PhoneController.PositionToGridCoord(location.Value.Get())}");
+                PrintMsgL(player, $"{location.Key} {location.Value.Get()} {MapHelper.PositionToString(location.Value.Get())}");
         }
 
         private void ValidateHomes(BasePlayer player, HomeData homeData, bool showRemoved, bool showLoc)
@@ -5102,7 +5169,7 @@ namespace Oxide.Plugins
                     {
                         SendHomeError(player, toRemove, err, location.Key, position, err == "HomeRemovedDestroyed", showRemoved);
                     }
-                    else if (showLoc) PrintMsgL(player, $"{location.Key} {position} {PhoneController.PositionToGridCoord(position)}");
+                    else if (showLoc) PrintMsgL(player, $"{location.Key} {position} {MapHelper.PositionToString(position)}");
                 }
                 foreach (var key in toRemove)
                 {
@@ -5145,7 +5212,7 @@ namespace Oxide.Plugins
                 {
                     SendHomeError(player, toRemove, err, location.Key, position, err == "HomeRemovedDestroyed");
                 }
-                else PrintMsgL(player, $"{location.Key} {position} ({PhoneController.PositionToGridCoord(position)})");
+                else PrintMsgL(player, $"{location.Key} {position} ({MapHelper.PositionToString(position)})");
             }
             foreach (var key in toRemove)
             {
@@ -6574,7 +6641,7 @@ namespace Oxide.Plugins
         {
             int minPos = (int)(diameter / -2f);
             int maxPos = (int)(diameter / 2f);
-            
+
             for (float x = minPos; x < maxPos; x += 5f)
             {
                 for (float z = minPos; z < maxPos; z += 5f)
@@ -6993,7 +7060,7 @@ namespace Oxide.Plugins
             if (!string.IsNullOrEmpty(err)) return err;
             return null;
         }
-        
+
         private bool CanCraftHome(BasePlayer player)
         {
             return config.Home.AllowCraft || permission.UserHasPermission(player.UserIDString, PermCraftHome) || CanBypassRestrictions(player.UserIDString);
