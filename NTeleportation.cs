@@ -21,7 +21,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.9.1")]
+    [Info("NTeleportation", "nivex", "1.9.3")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -350,6 +350,9 @@ namespace Oxide.Plugins
 
             [JsonProperty(PropertyName = "Block Map Marker Teleport (RaidableBases)")]
             public bool BlockRaidable;
+
+            [JsonProperty(PropertyName = "Automatically Destroy Map Teleport Markers")]
+            public bool DestroyMarker;
 
             [JsonProperty(PropertyName = "Chat Name")]
             public string ChatName = "<color=red>Teleportation</color> \n\n";
@@ -1332,6 +1335,7 @@ namespace Oxide.Plugins
                 {"TooCloseToCave", "You can't teleport so close to a cave!"},
                 {"HomeTooCloseToCave", "You can't set home so close to a cave!"},
                 {"HomeTooCloseToMon", "You can't set home so close to a monument!"},
+                {"TooCloseToMonTp", "You can't teleport so close to a monument!"},
                 {"CannotTeleportFromHome", "You must leave your base to be able to teleport!"},
                 {"WaitGlobalCooldown", "You must wait {0} on your global teleport cooldown!" },
                 {"DM_TownTP", "You teleported to {0}!"},
@@ -1358,6 +1362,7 @@ namespace Oxide.Plugins
                 { "Seconds", "Seconds" },
 
                 {"BlockedMarkerTeleport", "You have been blocked from using the marker teleport!" },
+                {"BlockedMarkerTeleportZMNOTP", "You have been blocked from using the marker teleport (ZoneManager NoTP flag)!" },
                 {"BlockedAuthMarkerTeleport", "You have been TC blocked from using the marker teleport!" },
                 {"Interrupted", "Your teleport was interrupted!"},
                 {"InterruptedTarget", "{0}'s teleport was interrupted!"},
@@ -1844,6 +1849,7 @@ namespace Oxide.Plugins
                 {"TPCrafting", "Вы не можете телепортироваться в процессе крафта!"},
                 {"TPBlockedItem", "Вы не можете телепортироваться пока несёте: {0}!"},
                 {"TooCloseToMon", "Вы не можете телепортироваться так близко к {0}!"},
+                {"TooCloseToMonTp", "Вы не можете телепортироваться так близко к памятнику!"},
                 {"TPHomeSafeZoneOnly", "Вы можете телепортироваться домой только из безопасной зоны!" },
                 {"TooCloseToCave", "Вы не можете телепортироваться так близко к пещере!"},
                 {"HomeTooCloseToCave", "Вы не можете сохранить местоположение в качестве дома так близко к пещере!"},
@@ -1875,6 +1881,7 @@ namespace Oxide.Plugins
                 {"Seconds", "секунд" },
 
                 {"BlockedMarkerTeleport", "Вам заблокировано использование маркера телепортации!" },
+                {"BlockedMarkerTeleportZMNOTP", "Вам заблокировано использование маркера телепортации! (ZoneManager NoTP flag)!" },
                 {"BlockedAuthMarkerTeleport", "Вам заблокировано использование маркера телепортации! (TC)" },
                 {"Interrupted", "Ваша телепортация была прервана!"},
                 {"InterruptedTarget", "Телепортация {0} была прервана!"},
@@ -2359,6 +2366,7 @@ namespace Oxide.Plugins
                 {"TPCrafting", "Ви не можете телепортуватись у процесі крафту!"},
                 {"TPBlockedItem", "Ви не можете телепортуватися поки що несете: {0}!"},
                 {"TooCloseToMon", "Ви не можете телепортуватися так близько до {0}!"},
+                {"TooCloseToMonTp", "Ви не можете телепортувати так близько до пам’ятника!"},
                 {"TPHomeSafeZoneOnly", "Ви можете телепортуватися додому лише з безпечної зони!" },
                 {"TooCloseToCave", "Ви не можете телепортуватись так близько до печери!"},
                 {"HomeTooCloseToCave", "Ви не можете зберегти розташування як будинок так близько до печери!"},
@@ -2390,6 +2398,7 @@ namespace Oxide.Plugins
                 {"Seconds", "секунд" },
 
                 {"BlockedMarkerTeleport", "Вам заблоковано використання маркера телепортації!" },
+                {"BlockedMarkerTeleportZMNOTP", "Вам заблоковано використання маркера телепортації (ZoneManager NoTP flag)!" },
                 {"BlockedAuthMarkerTeleport", "Вам заблоковано використання маркера телепортації! (TC)" },
                 {"Interrupted", "Вашу телепортацію було перервано!"},
                 {"InterruptedTarget", "Телепортація {0} була перервана!"},
@@ -3517,7 +3526,11 @@ namespace Oxide.Plugins
                 }
                 var position = monument.transform.position;
                 var rotation = monument.transform.rotation;
-                var name = monument.displayPhrase.english.Trim();
+                var name = monument.displayPhrase?.english?.Trim();
+                if (string.IsNullOrEmpty(name))
+                {
+                    name = monument.name;
+                }
                 if (config.Settings.MonumentsToExclude.Exists(v => name.Contains(v, CompareOptions.OrdinalIgnoreCase)))
                 {
 #if DEBUG
@@ -5498,10 +5511,13 @@ namespace Oxide.Plugins
             return true;
         }
 
-        private bool IsEnabled(string targetId, string value)
-        {
-            return TPT.TryGetValue(targetId, out var list) && list.Contains(value);
-        }
+        private bool API_IsEnabledTeamTPAT(BasePlayer player) => player != null && IsEnabled(player.UserIDString, "team");
+
+        private bool API_IsEnabledClanTPAT(BasePlayer player) => player != null && IsEnabled(player.UserIDString, "clan");
+
+        private bool API_IsEnabledFriendTPAT(BasePlayer player) => player != null && IsEnabled(player.UserIDString, "friend");
+
+        private bool IsEnabled(string targetId, string value) => TPT.TryGetValue(targetId, out var list) && list.Contains(value);
 
         private void ToggleTPTEnabled(BasePlayer target, string command, string[] args)
         {
@@ -5623,7 +5639,7 @@ namespace Oxide.Plugins
                     PrintMsgL(player, err);
                     return;
                 }
-                var err2 = CheckPlayer(target, config.TPR.UsableIntoBuildingBlocked, CanCraftTPR(target), true, config.TPR.RemoveHostility, "tpr", CanCaveTPR(target));
+                var err2 = CheckPlayer(target, config.TPR.UsableIntoBuildingBlocked, CanCraftTPR(target), true, config.TPR.RemoveHostility, "tpr", CanCaveTPR(target), IsAlly(target.userID, player.userID, config.Home.UseTeams, config.Home.UseClans, config.Home.UseFriends));
                 if (err2 != null)
                 {
                     string error = string.Format(lang.GetMessage("ErrorTPR", this, player.UserIDString), target.displayName, lang.GetMessage(err2, this, player.UserIDString));
@@ -7099,7 +7115,7 @@ namespace Oxide.Plugins
 
             if (player.IsConnected)
             {
-                StartSleeping(player);
+                player.StartSleeping();
                 player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, true);
                 player.ClientRPC(RpcTarget.Player(config.Settings.Quick ? "StartLoading_Quick" : "StartLoading", player), arg1: true);
             }
@@ -7120,7 +7136,7 @@ namespace Oxide.Plugins
                 {
                     if (player && player.IsConnected)
                     {
-                        if (player.limitNetworking) EndSleeping(player);
+                        if (player.limitNetworking) player.EndSleeping();
                         else player.EndSleeping();
                     }
                 }, 0.5f);
@@ -7154,65 +7170,6 @@ namespace Oxide.Plugins
             teleporting.Remove(userid);
         }
 
-        public void StartSleeping(BasePlayer player) // custom as to not cancel crafting, or remove player from vanish
-        {
-            if (!player.IsSleeping())
-            {
-                Interface.CallHook("OnPlayerSleep", player);
-                player.SetPlayerFlag(BasePlayer.PlayerFlags.Sleeping, b: true);
-                player.sleepStartTime = Time.time;
-                BasePlayer.sleepingPlayerList.Add(player);
-                player.CancelInvoke("InventoryUpdate");
-                player.CancelInvoke("TeamUpdate");
-                player.inventory.loot.Clear();
-                player.inventory.containerMain.OnChanged();
-                player.inventory.containerBelt.OnChanged();
-                player.inventory.containerWear.OnChanged();
-                player.Invoke("TurnOffAllLights", 0f);
-                if (!player._limitedNetworking)
-                {
-                    player.EnablePlayerCollider();
-                    player.RemovePlayerRigidbody();
-                }
-                else player.RemoveFromTriggers();
-                player.SetServerFall(wantsOn: true);
-            }
-        }
-
-        private void EndSleeping(BasePlayer player)
-        {
-            if (player.IsSleeping())
-            {
-                if (player.IsRestrained)
-                {
-                    player.inventory.SetLockedByRestraint(flag: true);
-                }
-                player.SetPlayerFlag(BasePlayer.PlayerFlags.Sleeping, b: false);
-                player.sleepStartTime = -1f;
-                BasePlayer.sleepingPlayerList.Remove(player);
-                player.CancelInvoke(player.ScheduledDeath);
-                player.InvokeRepeating("InventoryUpdate", 1f, 0.1f * UnityEngine.Random.Range(0.99f, 1.01f));
-                if (RelationshipManager.TeamsEnabled())
-                {
-                    player.InvokeRandomized(player.TeamUpdate, 1f, 4f, 1f);
-                }
-                player.InvokeRandomized(player.UpdateClanLastSeen, 300f, 300f, 60f);
-                player.inventory.containerMain.OnChanged();
-                player.inventory.containerBelt.OnChanged();
-                player.inventory.containerWear.OnChanged();
-                Interface.CallHook("OnPlayerSleepEnded", player);
-                EACServer.LogPlayerSpawn(player);
-                if (player.State?.pings?.Count > 0)
-                {
-                    player.SendPingsToClient();
-                }
-                if (TutorialIsland.ShouldPlayerBeAskedToStartTutorial(player))
-                {
-                    player.ClientRPC(RpcTarget.Player("PromptToStartTutorial", player));
-                }
-            }
-        }
-
         [PluginReference] Plugin RaidableBases, AbandonedBases;
 
         private List<string> blockMapMarker = new();
@@ -7235,22 +7192,39 @@ namespace Oxide.Plugins
                 }
                 else if (permission.UserHasPermission(player.UserIDString, PermTpMarker))
                 {
+                    bool isAdmin = player.IsAdmin || permission.UserHasPermission(player.UserIDString, PermAdmin);
                     float y = TerrainMeta.HeightMap.GetHeight(note.worldPosition);
                     if (player.IsFlying) y = Mathf.Max(y, player.transform.position.y);
+                    Vector3 worldPos = note.worldPosition + new Vector3(0f, y, 0f);
+                    //player.ChatMessage($"{note.worldPosition} :: {worldPos}");
                     if (config.Settings.CheckBoundaries && !CheckBoundaries(note.worldPosition.x, y, note.worldPosition.z))
                     {
                         PrintMsgL(player, "AdminTPOutOfBounds");
                         PrintMsgL(player, "AdminTPBoundaries", boundary);
                     }
-                    else if (CheckIsEventTerritory(note.worldPosition))
+                    else if (CheckIsEventTerritory(worldPos))
                     {
                         PrintMsgL(player, "BlockedMarkerTeleport");
                     }
-                    else if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, PermAdmin) && player.IsBuildingBlocked(note.worldPosition, Quaternion.identity, player.bounds))
+                    else if (!isAdmin && player.IsBuildingBlocked(worldPos, Quaternion.identity, player.bounds))
                     {
                         PrintMsgL(player, "BlockedAuthMarkerTeleport");
                     }
-                    else player.Teleport(note.worldPosition + new Vector3(0f, y, 0f));
+                    else if (!isAdmin && ZoneManager != null && HasZoneManagerFlag(worldPos, "NoTp"))
+                    {
+                        PrintMsgL(player, "BlockedMarkerTeleportZMNOTP");
+                    }
+                    else
+                    {
+                        player.Teleport(worldPos);
+                        if (config.Settings.DestroyMarker)
+                        {
+                            player.State.pointsOfInterest?.Remove(note);
+                            note.Dispose();
+                            player.DirtyPlayerState();
+                            player.SendMarkersToClient();
+                        }
+                    }
                 }
             }
         }
@@ -7264,7 +7238,14 @@ namespace Oxide.Plugins
 
         #endregion
 
+        #region Zones
+
+        public bool HasZoneManagerFlag(Vector3 v, string flagName) => Convert.ToBoolean(ZoneManager?.Call("PositionHasFlag", v, flagName));
+
+        #endregion Zones
+
         #region Checks
+
         private string CanPlayerTeleport(BasePlayer player, params Vector3[] vectors)
         {
             if (CanBypassRestrictions(player.UserIDString)) return null;
@@ -7379,7 +7360,7 @@ namespace Oxide.Plugins
             return null;
         }
 
-        private string CheckPlayer(BasePlayer player, bool build = false, bool craft = false, bool origin = true, bool removeHostility = false, string mode = "home", bool allowcave = true)
+        private string CheckPlayer(BasePlayer player, bool build = false, bool craft = false, bool origin = true, bool removeHostility = false, string mode = "home", bool allowcave = true, bool ff = true)
         {
             if (CanBypassRestrictions(player.UserIDString)) return null;
             if (config.Settings.Interrupt.Oilrig || config.Settings.Interrupt.Excavator || config.Settings.Interrupt.Monument || mode == "sethome")
@@ -7417,7 +7398,8 @@ namespace Oxide.Plugins
                             }
 
                             if (monname.Contains(":")) monname = monname.Substring(0, monname.IndexOf(":"));
-                            return _("TooCloseToMon", player, _(monname, player));
+                            if (ff) return _("TooCloseToMon", player, _(monname, player));
+                            return _("TooCloseToMonTp", player);
                         }
                     }
                 }
