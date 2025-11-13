@@ -21,7 +21,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("NTeleportation", "nivex", "1.9.3")]
+    [Info("NTeleportation", "nivex", "1.9.4")]
     [Description("Multiple teleportation systems for admin and players")]
     class NTeleportation : RustPlugin
     {
@@ -1137,7 +1137,7 @@ namespace Oxide.Plugins
 
             internal void Invalidate()
             {
-                time = float.MinValue;
+                time = 0f;
                 action = null;
                 UserID = 0uL;
             }
@@ -3317,6 +3317,7 @@ namespace Oxide.Plugins
                     TeleportTimer teleportTimer = TeleportTimers[i];
                     if (teleportTimer.time > 0 && time >= teleportTimer.time)
                     {
+                        teleportTimer.time = 0f;
                         teleportTimer.action?.Invoke();
                         teleportTimer.Invalidate();
                     }
@@ -3330,6 +3331,7 @@ namespace Oxide.Plugins
                     PendingRequest pendingRequest = PendingRequests[i];
                     if (pendingRequest.time > 0 && time >= pendingRequest.time)
                     {
+                        pendingRequest.time = 0f;
                         pendingRequest.action?.Invoke();
                         pendingRequest.Invalidate();
                     }
@@ -4591,6 +4593,11 @@ namespace Oxide.Plugins
             teleportTimer.time = Time.time + countdown;
             teleportTimer.action = () =>
             {
+                if (player == null || player.IsDestroyed)
+                {
+                    RemoveTeleportTimer(teleportTimer);
+                    return;
+                }
 #if DEBUG
                 Puts("Calling CheckPlayer from cmdChatHomeTP");
 #endif
@@ -5246,6 +5253,11 @@ namespace Oxide.Plugins
             teleportTimer.time = Time.time + countdown;
             teleportTimer.action = () =>
             {
+                if (player == null || player.IsDestroyed)
+                {
+                    RemoveTeleportTimer(teleportTimer);
+                    return;
+                }
 #if DEBUG
                 Puts("Calling CheckPlayer from cmdChatHomeTP");
 #endif
@@ -5790,7 +5802,7 @@ namespace Oxide.Plugins
                 PlayersRequests[target.userID] = player;
                 PendingRequest pendingRequest = Pool.Get<PendingRequest>();
                 pendingRequest.time = Time.time + config.TPR.RequestDuration;
-                pendingRequest.action = () => { RequestTimedOut(player, target); }; 
+                pendingRequest.action = () => { RequestTimedOut(player, player.displayName, player.userID, target, target.displayName, target.userID); }; 
                 pendingRequest.UserID = target.userID;
                 PendingRequests.Add(pendingRequest);
                 PrintMsgL(player, "Request", target.displayName);
@@ -5902,6 +5914,8 @@ namespace Oxide.Plugins
             {
                 SendEffect(originPlayer, config.TPR.TeleportAcceptEffects);
             }
+            var playerName = player.displayName;
+            var originName = originPlayer.displayName;
             var timestamp = Facepunch.Math.Epoch.Current;
             TeleportTimer teleportTimer = Pool.Get<TeleportTimer>();
             teleportTimer.UserID = originPlayer.userID;
@@ -5910,6 +5924,19 @@ namespace Oxide.Plugins
             teleportTimer.time = Time.time + countdown;
             teleportTimer.action = () =>
             {
+                if (player == null || player.IsDestroyed)
+                {
+                    PrintMsgL(originPlayer, "InterruptedTarget", playerName);
+                    RemoveTeleportTimer(teleportTimer);
+                    return;
+                }
+
+                if (originPlayer == null || originPlayer.IsDestroyed)
+                {
+                    PrintMsgL(player, "InterruptedTarget", originName);
+                    RemoveTeleportTimer(teleportTimer);
+                    return;
+                }
 #if DEBUG
                 Puts("Calling CheckPlayer from cmdChatTeleportAccept timer loop");
 #endif
@@ -6637,6 +6664,11 @@ namespace Oxide.Plugins
             teleportTimer.time = Time.time + countdown;
             teleportTimer.action = () =>
             {
+                if (player == null || player.IsDestroyed)
+                {
+                    RemoveTeleportTimer(teleportTimer);
+                    return;
+                }
 #if DEBUG
                 Puts($"Calling CheckPlayer from cmdChatTown {command} timer loop");
 #endif
@@ -6984,13 +7016,13 @@ namespace Oxide.Plugins
             if (!user.IsServer) Puts("Imported {0} homes.", count);
         }
 
-        private void RequestTimedOut(BasePlayer player, BasePlayer target)
+        private void RequestTimedOut(BasePlayer player, string playerName, ulong playerId, BasePlayer target, string targetName, ulong targetId)
         {
-            PlayersRequests.Remove(player.userID);
-            PlayersRequests.Remove(target.userID);
-            RemovePendingRequest(target.userID);
-            PrintMsgL(player, "TimedOut", target.displayName);
-            PrintMsgL(target, "TimedOutTarget", player.displayName);
+            PlayersRequests.Remove(playerId);
+            PlayersRequests.Remove(targetId);
+            RemovePendingRequest(targetId);
+            if (player != null) PrintMsgL(player, "TimedOut", targetName);
+            if (target != null) PrintMsgL(target, "TimedOutTarget", playerName);
         }
 
         private void CommandPluginInfo(IPlayer user, string command, string[] args)
@@ -7116,6 +7148,7 @@ namespace Oxide.Plugins
             if (player.IsConnected)
             {
                 player.StartSleeping();
+                if (player.IsAdmin) player.RunOfflineMetabolism(state: false);
                 player.SetPlayerFlag(BasePlayer.PlayerFlags.ReceivingSnapshot, true);
                 player.ClientRPC(RpcTarget.Player(config.Settings.Quick ? "StartLoading_Quick" : "StartLoading", player), arg1: true);
             }
@@ -7124,7 +7157,7 @@ namespace Oxide.Plugins
 
             if (player.IsConnected)
             {
-                if (!player._limitedNetworking)
+                if (!player.limitNetworking && !player.isInvisible)
                 {
                     player.UpdateNetworkGroup();
                     player.SendNetworkUpdateImmediate();
@@ -7136,13 +7169,13 @@ namespace Oxide.Plugins
                 {
                     if (player && player.IsConnected)
                     {
-                        if (player.limitNetworking) player.EndSleeping();
+                        if (player.limitNetworking || player.isInvisible) player.EndSleeping();
                         else player.EndSleeping();
                     }
                 }, 0.5f);
             }
 
-            if (!player._limitedNetworking)
+            if (!player.limitNetworking && !player.isInvisible)
             {
                 player.ForceUpdateTriggers();
             }
@@ -7162,7 +7195,7 @@ namespace Oxide.Plugins
         private bool CanWake(BasePlayer player)
         {
             if (!config.Settings.AutoWakeUp) return false;
-            return player.IsOnGround() || player.limitNetworking || player.IsFlying || player.IsAdmin;
+            return player.IsOnGround() || player.limitNetworking || player.isInvisible || player.IsFlying || player.IsAdmin;
         }
 
         public void RemoveProtections(ulong userid)
@@ -7362,7 +7395,7 @@ namespace Oxide.Plugins
 
         private string CheckPlayer(BasePlayer player, bool build = false, bool craft = false, bool origin = true, bool removeHostility = false, string mode = "home", bool allowcave = true, bool ff = true)
         {
-            if (CanBypassRestrictions(player.UserIDString)) return null;
+            if (player == null || player.IsDestroyed || CanBypassRestrictions(player.UserIDString)) return null;
             if (config.Settings.Interrupt.Oilrig || config.Settings.Interrupt.Excavator || config.Settings.Interrupt.Monument || mode == "sethome")
             {
                 string monname = !config.Settings.Interrupt.Safe && player.InSafeZone() ? null : NearMonument(player.transform.position, false, mode);
@@ -7672,7 +7705,7 @@ namespace Oxide.Plugins
                 {
                     if (blockForNoCupboard)
                     {
-#if DEBUG        
+#if DEBUG
                         Puts("No cupboard found, blocking teleport");
 #endif
                         err = "HomeTPNoCupboard";
@@ -7680,7 +7713,7 @@ namespace Oxide.Plugins
                     }
                     else
                     {
-#if DEBUG        
+#if DEBUG
                         Puts("No cupboard found, allowing teleport");
 #endif
                         return true;
@@ -8159,13 +8192,13 @@ namespace Oxide.Plugins
         {
             if (effects.Count != 0)
             {
-                reusableSoundEffectInstance.Init(Effect.Type.Generic, player, 0, Vector3.zero, Vector3.forward, player.limitNetworking ? player.Connection : null);
+                reusableSoundEffectInstance.Init(Effect.Type.Generic, player, 0, Vector3.zero, Vector3.forward, player.limitNetworking || player.isInvisible ? player.Connection : null);
                 reusableSoundEffectInstance.pooledString = effects.GetRandom();
                 if (string.IsNullOrEmpty(reusableSoundEffectInstance.pooledString))
                 {
                     return;
                 }
-                if (player.limitNetworking)
+                if (player.limitNetworking || player.isInvisible)
                 {
                     EffectNetwork.Send(reusableSoundEffectInstance, player.Connection);
                 }
